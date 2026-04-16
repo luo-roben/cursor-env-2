@@ -14,4 +14,10 @@ public interface LawArticleService {
     PageResult<LawArticleRespVO> page(LawArticlePageReqVO reqVO);
 
     void publish(Long id, Long confirmedBy);
+
+    LawArticleRespVO update(Long id, LawArticleCreateReqVO reqVO);
+
+    void deprecate(Long id);
+
+    void delete(Long id);
 }

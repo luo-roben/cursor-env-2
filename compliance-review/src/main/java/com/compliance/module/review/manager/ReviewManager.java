@@ -5,6 +5,12 @@ import com.compliance.module.ai.dto.AiReviewResponse;
 import com.compliance.module.ai.service.AiReviewService;
 import com.compliance.module.context.dto.AssembledContext;
 import com.compliance.module.context.service.ContextAssembler;
+import com.compliance.module.filter.dto.MissingElementResult;
+import com.compliance.module.filter.dto.QuickFilterResult;
+import com.compliance.module.filter.service.CompletenessCheckerService;
+import com.compliance.module.filter.service.QuickFilterService;
+import com.compliance.module.llm.entity.LlmCallLogDO;
+import com.compliance.module.llm.service.LlmCallLogService;
 import com.compliance.module.review.entity.ReviewMissingElementDO;
 import com.compliance.module.review.entity.ReviewResultDO;
 import com.compliance.module.review.entity.ReviewTaskDO;
@@ -25,12 +31,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Orchestrates the full compliance review flow:
- * 1. Assemble context (parse content + query law articles + custom rules + build prompt)
- * 2. Call LLM (mock for MVP)
- * 3. Verify citations against knowledge base
- * 4. Calculate risk score
- * 5. Persist all results
+ * Orchestrates the full 6-stage compliance review pipeline:
+ * Stage 1: Quick filter (banned words + required statements)
+ * Stage 2: Content parsing (segments)
+ * Stage 3: ACE context assembly (law articles + custom rules + prompt)
+ * Stage 4: LLM call (mock for MVP)
+ * Stage 5: Post-processing (citation verification + risk scoring)
+ * Stage 6: Persist results + completeness check
  */
 @Slf4j
 @Component
@@ -41,6 +48,9 @@ public class ReviewManager {
     private final AiReviewService aiReviewService;
     private final CitationVerifier citationVerifier;
     private final RiskScoreCalculator riskScoreCalculator;
+    private final QuickFilterService quickFilterService;
+    private final CompletenessCheckerService completenessCheckerService;
+    private final LlmCallLogService llmCallLogService;
     private final ReviewTaskRepository reviewTaskRepository;
     private final ReviewResultRepository reviewResultRepository;
     private final ReviewMissingElementRepository reviewMissingElementRepository;
@@ -56,9 +66,46 @@ public class ReviewManager {
         task.setLlmModel(defaultModel);
         reviewTaskRepository.save(task);
 
-        log.info("Starting review for task: id={}, contentType={}", task.getId(), task.getContentType());
+        log.info("Starting review pipeline for task: id={}, contentType={}", task.getId(), task.getContentType());
 
-        // Step 1: Assemble context
+        List<ReviewResultDO> allResults = new ArrayList<>();
+        List<ReviewMissingElementDO> allMissing = new ArrayList<>();
+
+        // ===== Stage 1: Quick Filter (banned words + required statements) =====
+        QuickFilterResult filterResult = quickFilterService.filter(task.getOriginalContent(), task.getTenantId());
+        if (!filterResult.getBannedWordHits().isEmpty()) {
+            log.info("Quick filter: found {} banned word hits", filterResult.getBannedWordHits().size());
+            int idx = 0;
+            for (QuickFilterResult.BannedWordHit hit : filterResult.getBannedWordHits()) {
+                ReviewResultDO result = ReviewResultDO.builder()
+                        .taskId(task.getId())
+                        .tenantId(task.getTenantId())
+                        .segmentIndex(-(++idx))
+                        .originalText(hit.getWord())
+                        .verdict("violation")
+                        .confidence(new BigDecimal("1.00"))
+                        .issueType("banned_word")
+                        .severity("critical")
+                        .description("命中企业禁用词: \"" + hit.getWord() + "\"")
+                        .citationStatus("verified")
+                        .suggestion("请删除禁用词\"" + hit.getWord() + "\"")
+                        .build();
+                allResults.add(result);
+            }
+        }
+        for (QuickFilterResult.MissingStatement ms : filterResult.getMissingStatements()) {
+            ReviewMissingElementDO missing = ReviewMissingElementDO.builder()
+                    .taskId(task.getId())
+                    .tenantId(task.getTenantId())
+                    .element(ms.getStatement())
+                    .requirement("企业必备声明缺失")
+                    .severity(ms.getSeverity() != null ? ms.getSeverity() : "major")
+                    .suggestion("请添加必备声明: \"" + ms.getStatement() + "\"")
+                    .build();
+            allMissing.add(missing);
+        }
+
+        // ===== Stage 2 & 3: Context Assembly =====
         AssembledContext context = contextAssembler.assemble(
                 task.getOriginalContent(),
                 task.getContentType(),
@@ -67,7 +114,7 @@ public class ReviewManager {
 
         task.setLlmRawPrompt(context.getAssembledPrompt());
 
-        // Step 2: Call AI service
+        // ===== Stage 4: LLM Call =====
         AiReviewRequest aiRequest = AiReviewRequest.builder()
                 .content(task.getOriginalContent())
                 .contentType(task.getContentType())
@@ -76,13 +123,17 @@ public class ReviewManager {
                 .assembledPrompt(context.getAssembledPrompt())
                 .build();
 
+        long llmStart = System.currentTimeMillis();
         AiReviewResponse aiResponse = aiReviewService.review(aiRequest);
+        long llmLatency = System.currentTimeMillis() - llmStart;
 
         task.setLlmRawResponse(aiResponse.getRawResponse());
         task.setLlmLatencyMs((int) aiResponse.getLatencyMs());
 
-        // Step 3: Build result entities
-        List<ReviewResultDO> resultEntities = new ArrayList<>();
+        logLlmCall(task.getId(), context.getAssembledPrompt(), aiResponse.getRawResponse(),
+                (int) llmLatency, true, null);
+
+        // Build result entities from LLM response
         if (aiResponse.getSegments() != null) {
             for (AiReviewResponse.SegmentResult seg : aiResponse.getSegments()) {
                 ReviewResultDO result = ReviewResultDO.builder()
@@ -100,17 +151,10 @@ public class ReviewManager {
                         .suggestion(seg.getSuggestion())
                         .citationStatus("pending")
                         .build();
-                resultEntities.add(result);
+                allResults.add(result);
             }
         }
 
-        // Step 4: Verify citations
-        citationVerifier.verifyCitations(resultEntities);
-
-        // Step 5: Persist results
-        resultEntities = reviewResultRepository.saveAll(resultEntities);
-
-        List<ReviewMissingElementDO> missingEntities = new ArrayList<>();
         if (aiResponse.getMissingElements() != null) {
             for (AiReviewResponse.MissingElement me : aiResponse.getMissingElements()) {
                 ReviewMissingElementDO missing = ReviewMissingElementDO.builder()
@@ -121,16 +165,41 @@ public class ReviewManager {
                         .severity(me.getSeverity() != null ? me.getSeverity() : "major")
                         .suggestion(me.getSuggestion())
                         .build();
-                missingEntities.add(missing);
+                allMissing.add(missing);
             }
         }
-        missingEntities = reviewMissingElementRepository.saveAll(missingEntities);
 
-        // Step 6: Calculate risk score
-        int riskScore = riskScoreCalculator.calculateRiskScore(resultEntities, missingEntities);
+        // ===== Stage 5: Post-processing =====
+        // Citation verification (anti-hallucination)
+        citationVerifier.verifyCitations(allResults);
+
+        // Completeness check
+        List<MissingElementResult> completenessResults = completenessCheckerService.check(
+                task.getOriginalContent(), task.getContentType(), task.getProductType(), task.getTenantId());
+        for (MissingElementResult cr : completenessResults) {
+            boolean alreadyReported = allMissing.stream()
+                    .anyMatch(m -> m.getElement().contains(cr.getCheckItem()));
+            if (!alreadyReported) {
+                ReviewMissingElementDO missing = ReviewMissingElementDO.builder()
+                        .taskId(task.getId())
+                        .tenantId(task.getTenantId())
+                        .element(cr.getCheckItem())
+                        .requirement(cr.getRequirement())
+                        .lawArticleId(cr.getLawArticleId())
+                        .severity(cr.getSeverity() != null ? cr.getSeverity() : "major")
+                        .suggestion(cr.getSuggestion())
+                        .build();
+                allMissing.add(missing);
+            }
+        }
+
+        // ===== Stage 6: Persist & Finalize =====
+        allResults = reviewResultRepository.saveAll(allResults);
+        allMissing = reviewMissingElementRepository.saveAll(allMissing);
+
+        int riskScore = riskScoreCalculator.calculateRiskScore(allResults, allMissing);
         String riskLevel = riskScoreCalculator.calculateRiskLevel(riskScore);
 
-        // Step 7: Update task
         task.setOverallVerdict(aiResponse.getOverallVerdict());
         task.setRiskScore(riskScore);
         task.setRiskLevel(riskLevel);
@@ -140,9 +209,30 @@ public class ReviewManager {
 
         task = reviewTaskRepository.save(task);
 
-        log.info("Review completed: taskId={}, verdict={}, riskScore={}, riskLevel={}, totalLatency={}ms",
-                task.getId(), task.getOverallVerdict(), riskScore, riskLevel, task.getTotalLatencyMs());
+        log.info("Review pipeline completed: taskId={}, verdict={}, riskScore={}, riskLevel={}, " +
+                        "bannedWordHits={}, missingElements={}, totalLatency={}ms",
+                task.getId(), task.getOverallVerdict(), riskScore, riskLevel,
+                filterResult.getBannedWordHits().size(), allMissing.size(), task.getTotalLatencyMs());
 
         return task;
+    }
+
+    private void logLlmCall(Long taskId, String prompt, String response, int latencyMs,
+                            boolean success, String errorMessage) {
+        try {
+            LlmCallLogDO logEntry = LlmCallLogDO.builder()
+                    .reviewTaskId(taskId)
+                    .callType("review")
+                    .modelName(defaultModel)
+                    .rawPrompt(prompt)
+                    .rawResponse(response)
+                    .latencyMs(latencyMs)
+                    .success(success)
+                    .errorMessage(errorMessage)
+                    .build();
+            llmCallLogService.log(logEntry);
+        } catch (Exception e) {
+            log.warn("Failed to log LLM call for task {}: {}", taskId, e.getMessage());
+        }
     }
 }

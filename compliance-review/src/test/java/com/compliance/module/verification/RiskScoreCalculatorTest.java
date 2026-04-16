@@ -29,35 +29,52 @@ class RiskScoreCalculatorTest {
     }
 
     @Test
-    void testCriticalViolation() {
+    void testCriticalViolationWithVerifiedCitation() {
         List<ReviewResultDO> results = new ArrayList<>();
         ReviewResultDO result = new ReviewResultDO();
         result.setVerdict("violation");
         result.setSeverity("critical");
+        result.setCitationStatus("verified");
         results.add(result);
 
         int score = calculator.calculateRiskScore(results, Collections.emptyList());
-        assertEquals(40, score);
+        assertEquals(30, score);
         assertEquals("medium", calculator.calculateRiskLevel(score));
     }
 
     @Test
-    void testMixedSeverities() {
+    void testCriticalViolationWithUnverifiedCitation() {
+        List<ReviewResultDO> results = new ArrayList<>();
+        ReviewResultDO result = new ReviewResultDO();
+        result.setVerdict("violation");
+        result.setSeverity("critical");
+        result.setCitationStatus("unverified");
+        results.add(result);
+
+        int score = calculator.calculateRiskScore(results, Collections.emptyList());
+        assertEquals(15, score);
+        assertEquals("low", calculator.calculateRiskLevel(score));
+    }
+
+    @Test
+    void testMixedSeveritiesVerified() {
         List<ReviewResultDO> results = new ArrayList<>();
 
         ReviewResultDO r1 = new ReviewResultDO();
         r1.setVerdict("violation");
         r1.setSeverity("critical");
+        r1.setCitationStatus("verified");
         results.add(r1);
 
         ReviewResultDO r2 = new ReviewResultDO();
         r2.setVerdict("violation");
         r2.setSeverity("major");
+        r2.setCitationStatus("verified");
         results.add(r2);
 
         int score = calculator.calculateRiskScore(results, Collections.emptyList());
-        assertEquals(60, score);
-        assertEquals("high", calculator.calculateRiskLevel(score));
+        assertEquals(50, score);
+        assertEquals("medium", calculator.calculateRiskLevel(score));
     }
 
     @Test
@@ -67,6 +84,7 @@ class RiskScoreCalculatorTest {
             ReviewResultDO r = new ReviewResultDO();
             r.setVerdict("violation");
             r.setSeverity("critical");
+            r.setCitationStatus("verified");
             results.add(r);
         }
 
@@ -82,7 +100,8 @@ class RiskScoreCalculatorTest {
         missingElements.add(me);
 
         int score = calculator.calculateRiskScore(Collections.emptyList(), missingElements);
-        assertEquals(40, score);
+        assertEquals(25, score);
+        assertEquals("medium", calculator.calculateRiskLevel(score));
     }
 
     @Test
@@ -100,10 +119,29 @@ class RiskScoreCalculatorTest {
     @Test
     void testRiskLevels() {
         assertEquals("low", calculator.calculateRiskLevel(0));
-        assertEquals("low", calculator.calculateRiskLevel(29));
-        assertEquals("medium", calculator.calculateRiskLevel(30));
-        assertEquals("medium", calculator.calculateRiskLevel(59));
-        assertEquals("high", calculator.calculateRiskLevel(60));
+        assertEquals("low", calculator.calculateRiskLevel(20));
+        assertEquals("medium", calculator.calculateRiskLevel(21));
+        assertEquals("medium", calculator.calculateRiskLevel(50));
+        assertEquals("high", calculator.calculateRiskLevel(51));
         assertEquals("high", calculator.calculateRiskLevel(100));
+    }
+
+    @Test
+    void testCitationWeightFactors() {
+        ReviewResultDO verified = new ReviewResultDO();
+        verified.setVerdict("violation");
+        verified.setSeverity("major");
+        verified.setCitationStatus("verified");
+
+        ReviewResultDO corrected = new ReviewResultDO();
+        corrected.setVerdict("violation");
+        corrected.setSeverity("major");
+        corrected.setCitationStatus("corrected");
+
+        int verifiedScore = calculator.calculateRiskScore(List.of(verified), Collections.emptyList());
+        int correctedScore = calculator.calculateRiskScore(List.of(corrected), Collections.emptyList());
+
+        assertEquals(20, verifiedScore);
+        assertEquals(16, correctedScore);
     }
 }

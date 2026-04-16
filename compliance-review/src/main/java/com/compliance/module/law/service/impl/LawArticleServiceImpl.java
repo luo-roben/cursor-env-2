@@ -104,6 +104,62 @@ public class LawArticleServiceImpl implements LawArticleService {
         log.info("Published law article: id={}", id);
     }
 
+    @Override
+    @Transactional
+    public LawArticleRespVO update(Long id, LawArticleCreateReqVO reqVO) {
+        LawArticleDO entity = lawArticleRepository.findById(id)
+                .orElseThrow(() -> new ServiceException(ErrorCode.LAW_ARTICLE_NOT_FOUND));
+
+        entity.setSourceId(reqVO.getSourceId());
+        entity.setLawName(reqVO.getLawName());
+        entity.setLawShortName(reqVO.getLawShortName());
+        entity.setArticleId(reqVO.getArticleId());
+        entity.setOriginalText(reqVO.getOriginalText());
+        entity.setNormType(reqVO.getNormType());
+        entity.setSubject(reqVO.getSubject());
+        entity.setBehavior(reqVO.getBehavior());
+        entity.setObjectDesc(reqVO.getObjectDesc());
+        entity.setApplicableCondition(reqVO.getApplicableCondition());
+        entity.setApplicableScenarios(reqVO.getApplicableScenarios());
+        entity.setApplicableContentTypes(reqVO.getApplicableContentTypes());
+        entity.setApplicableProductTypes(reqVO.getApplicableProductTypes());
+        entity.setKeyPhrases(reqVO.getKeyPhrases());
+        entity.setSemanticExtensions(reqVO.getSemanticExtensions());
+        entity.setViolationExamples(reqVO.getViolationExamples());
+        entity.setCompliantExamples(reqVO.getCompliantExamples());
+        entity.setPenalty(reqVO.getPenalty());
+        entity.setRelatedArticles(reqVO.getRelatedArticles());
+        if (reqVO.getAuthorityLevel() != null) {
+            entity.setAuthorityLevel(reqVO.getAuthorityLevel());
+        }
+
+        entity = lawArticleRepository.save(entity);
+        log.info("Updated law article: id={}", id);
+        return toRespVO(entity);
+    }
+
+    @Override
+    @Transactional
+    public void deprecate(Long id) {
+        LawArticleDO entity = lawArticleRepository.findById(id)
+                .orElseThrow(() -> new ServiceException(ErrorCode.LAW_ARTICLE_NOT_FOUND));
+        entity.setStatus("deprecated");
+        lawArticleRepository.save(entity);
+        log.info("Deprecated law article: id={}", id);
+    }
+
+    @Override
+    @Transactional
+    public void delete(Long id) {
+        LawArticleDO entity = lawArticleRepository.findById(id)
+                .orElseThrow(() -> new ServiceException(ErrorCode.LAW_ARTICLE_NOT_FOUND));
+        if (!"draft".equals(entity.getStatus())) {
+            throw new ServiceException(1004, "只能删除草稿状态的法条");
+        }
+        lawArticleRepository.delete(entity);
+        log.info("Deleted law article: id={}", id);
+    }
+
     private LawArticleRespVO toRespVO(LawArticleDO entity) {
         LawArticleRespVO vo = new LawArticleRespVO();
         vo.setId(entity.getId());

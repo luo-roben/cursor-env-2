@@ -48,4 +48,28 @@ public class LawArticleController {
         lawArticleService.publish(id, confirmedBy);
         return CommonResult.success();
     }
+
+    @Operation(summary = "更新法条", description = "Update an existing law article")
+    @PutMapping("/{id}")
+    public CommonResult<LawArticleRespVO> update(
+            @Parameter(description = "法条ID") @PathVariable Long id,
+            @Valid @RequestBody LawArticleCreateReqVO reqVO) {
+        return CommonResult.success(lawArticleService.update(id, reqVO));
+    }
+
+    @Operation(summary = "废弃法条", description = "Deprecate a law article")
+    @PutMapping("/{id}/deprecate")
+    public CommonResult<Void> deprecate(
+            @Parameter(description = "法条ID") @PathVariable Long id) {
+        lawArticleService.deprecate(id);
+        return CommonResult.success();
+    }
+
+    @Operation(summary = "删除法条", description = "Delete a draft law article")
+    @DeleteMapping("/{id}")
+    public CommonResult<Void> delete(
+            @Parameter(description = "法条ID") @PathVariable Long id) {
+        lawArticleService.delete(id);
+        return CommonResult.success();
+    }
 }

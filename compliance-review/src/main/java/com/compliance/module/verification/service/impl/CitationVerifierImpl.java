@@ -28,18 +28,32 @@ public class CitationVerifierImpl implements CitationVerifier {
                 continue;
             }
 
-            Optional<LawArticleDO> articleOpt = lawArticleRepository.findByArticleIdAndLawName(
-                    result.getCitedArticleCode(), result.getCitedLawName());
+            try {
+                List<LawArticleDO> matches = lawArticleRepository.findByArticleIdAndStatus(
+                        result.getCitedArticleCode(), "published");
 
-            if (articleOpt.isPresent()) {
-                LawArticleDO article = articleOpt.get();
-                result.setLawArticleId(article.getId());
-                result.setVerifiedOriginalText(article.getOriginalText());
-                result.setCitationStatus("verified");
-                log.debug("Citation verified: {} - {}", result.getCitedLawName(), result.getCitedArticleCode());
-            } else {
+                LawArticleDO matched = matches.stream()
+                        .filter(a -> a.getLawName() != null && a.getLawName().contains(result.getCitedLawName()))
+                        .findFirst()
+                        .orElse(matches.isEmpty() ? null : matches.get(0));
+
+                if (matched != null) {
+                    result.setLawArticleId(matched.getId());
+                    result.setVerifiedOriginalText(matched.getOriginalText());
+                    if (matched.getLawName().equals(result.getCitedLawName())) {
+                        result.setCitationStatus("verified");
+                    } else {
+                        result.setCitationStatus("corrected");
+                    }
+                    log.debug("Citation verified: {} - {}", result.getCitedLawName(), result.getCitedArticleCode());
+                } else {
+                    result.setCitationStatus("unverified");
+                    log.warn("Citation NOT found: {} - {}", result.getCitedLawName(), result.getCitedArticleCode());
+                }
+            } catch (Exception e) {
                 result.setCitationStatus("unverified");
-                log.warn("Citation NOT found: {} - {}", result.getCitedLawName(), result.getCitedArticleCode());
+                log.warn("Citation verification error for {} - {}: {}", 
+                        result.getCitedLawName(), result.getCitedArticleCode(), e.getMessage());
             }
         }
     }

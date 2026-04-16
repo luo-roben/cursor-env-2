@@ -14,37 +14,54 @@ import java.util.Map;
 public class RiskScoreCalculatorImpl implements RiskScoreCalculator {
 
     private static final Map<String, Integer> SEVERITY_SCORES = Map.of(
-            "critical", 40,
+            "critical", 30,
             "major", 20,
-            "minor", 5,
-            "info", 0
+            "minor", 10,
+            "info", 5
+    );
+
+    private static final Map<String, Integer> MISSING_ELEMENT_SCORES = Map.of(
+            "critical", 25,
+            "major", 10,
+            "minor", 5
+    );
+
+    private static final Map<String, Double> CITATION_WEIGHT = Map.of(
+            "verified", 1.0,
+            "corrected", 0.8,
+            "unverified", 0.5,
+            "pending", 0.7
     );
 
     @Override
     public int calculateRiskScore(List<ReviewResultDO> results, List<ReviewMissingElementDO> missingElements) {
-        int totalScore = 0;
+        double totalScore = 0;
 
         for (ReviewResultDO result : results) {
             if ("violation".equals(result.getVerdict()) && result.getSeverity() != null) {
-                totalScore += SEVERITY_SCORES.getOrDefault(result.getSeverity(), 5);
+                int baseScore = SEVERITY_SCORES.getOrDefault(result.getSeverity(), 5);
+                double weight = CITATION_WEIGHT.getOrDefault(
+                        result.getCitationStatus() != null ? result.getCitationStatus() : "pending", 0.7);
+                totalScore += baseScore * weight;
             }
         }
 
         for (ReviewMissingElementDO missing : missingElements) {
             if (missing.getSeverity() != null) {
-                totalScore += SEVERITY_SCORES.getOrDefault(missing.getSeverity(), 10);
+                totalScore += MISSING_ELEMENT_SCORES.getOrDefault(missing.getSeverity(), 10);
             }
         }
 
-        int capped = Math.min(totalScore, 100);
-        log.debug("Risk score calculated: raw={}, capped={}", totalScore, capped);
+        int capped = Math.min((int) Math.round(totalScore), 100);
+        log.debug("Risk score calculated: raw={}, capped={}, violations={}, missingElements={}",
+                totalScore, capped, results.size(), missingElements.size());
         return capped;
     }
 
     @Override
     public String calculateRiskLevel(int riskScore) {
-        if (riskScore >= 60) return "high";
-        if (riskScore >= 30) return "medium";
+        if (riskScore > 50) return "high";
+        if (riskScore >= 21) return "medium";
         return "low";
     }
 }
