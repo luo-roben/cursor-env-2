@@ -6,7 +6,7 @@
 The `compliance-review/` directory contains a Spring Boot 3.2.5 (Java 21) backend for an intelligent compliance review system. It uses MySQL 8 as its sole data store and a mock LLM model for MVP.
 
 ### Prerequisites
-- Java 21 and Maven 3.8+ are pre-installed in the VM.
+- Java 21 is pre-installed. Maven and MySQL 8 are installed by the update script.
 - MySQL 8 must be running. Start with `sudo service mysql start`.
 - Database and user must exist (see below).
 
@@ -43,3 +43,20 @@ The app starts on port **8080**. Schema auto-initializes via `spring.sql.init` f
 
 ### API Exploration
 Swagger UI is available at `http://localhost:8080/swagger-ui.html` and OpenAPI spec at `/v3/api-docs`.
+
+### Running the App
+1. `sudo service mysql start` (if not already running)
+2. `cd /workspace/compliance-review && mvn spring-boot:run`
+3. The app auto-creates tables from `schema.sql` on startup and inserts a default tenant + admin user.
+
+### Testing a Review (hello world)
+```bash
+# Create & publish a law article
+curl -X POST http://localhost:8080/api/v1/law/articles -H "Content-Type: application/json" \
+  -d '{"sourceId":1,"lawName":"证券期货投资者适当性管理办法","articleId":"第二十条第一款","originalText":"禁止使用保本、无风险等宣传用语","normType":"禁止","authorityLevel":3}'
+curl -X PUT "http://localhost:8080/api/v1/law/articles/1/publish?confirmedBy=1"
+
+# Submit compliance review
+curl -X POST http://localhost:8080/api/v1/review/submit -H "Content-Type: application/json" \
+  -d '{"tenantId":1,"submittedBy":1,"contentType":"营销海报","productType":"公募基金","originalContent":"保本保收益，零风险！"}'
+```
