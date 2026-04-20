@@ -3,7 +3,10 @@
 ## Cursor Cloud specific instructions
 
 ### Project Overview
-The `compliance-review/` directory contains a Spring Boot 3.2.5 (Java 21) backend for an intelligent compliance review system. It uses MySQL 8 as its sole data store and a mock LLM model for MVP.
+This repository contains two Spring Boot 3.2.5 (Java 21) backend projects:
+
+1. **`compliance-review/`** — v1 intelligent compliance review system (marketing materials). Uses MySQL 8 + mock LLM.
+2. **`review-system/`** — v2 Universal Intelligent Review System (all document types: contracts, marketing, prospectuses). Uses MySQL 8 + mock LLM for MVP; designed for Elasticsearch, Neo4j, Redis, and Milvus integration in later phases (these are excluded from auto-config for local dev).
 
 ### Prerequisites
 - Java 21 is pre-installed. Maven and MySQL 8 are installed by the update script.
@@ -19,12 +22,15 @@ sudo mysql -u root -e "
   CREATE USER IF NOT EXISTS 'compliance'@'localhost' IDENTIFIED BY 'compliance123';
   GRANT ALL PRIVILEGES ON compliance_review.* TO 'compliance'@'localhost';
   GRANT ALL PRIVILEGES ON compliance_review_test.* TO 'compliance'@'localhost';
+  CREATE DATABASE IF NOT EXISTS review_system DEFAULT CHARSET utf8mb4;
+  CREATE USER IF NOT EXISTS 'review'@'localhost' IDENTIFIED BY 'review123';
+  GRANT ALL PRIVILEGES ON review_system.* TO 'review'@'localhost';
   FLUSH PRIVILEGES;
 "
 ```
 
 ### Common Commands
-All commands run from `/workspace/compliance-review/`:
+**compliance-review** (from `/workspace/compliance-review/`):
 
 | Action | Command |
 |---|---|
@@ -33,13 +39,24 @@ All commands run from `/workspace/compliance-review/`:
 | Run app (dev) | `mvn spring-boot:run` |
 | Package | `mvn package -DskipTests` |
 
-The app starts on port **8080**. Schema auto-initializes via `spring.sql.init` from `src/main/resources/db/schema.sql`.
+**review-system** (from `/workspace/review-system/`):
+
+| Action | Command |
+|---|---|
+| Compile | `mvn compile` |
+| Unit tests | `mvn test` |
+| Run app (dev) | `mvn spring-boot:run` |
+| Package | `mvn package -DskipTests` |
+
+Both apps start on port **8080** (run only one at a time). Schema auto-initializes via `spring.sql.init` from `src/main/resources/db/schema.sql`.
 
 ### Key Gotchas
 - The JDBC URL must use `characterEncoding=UTF-8` (not `utf8mb4`) — the MySQL Connector/J driver does not recognize `utf8mb4` as a Java charset.
 - The `spring.sql.init.mode=always` means schema.sql runs on every startup; all DDL uses `CREATE TABLE IF NOT EXISTS` and `ON DUPLICATE KEY UPDATE` so it's safe for repeated runs.
 - JSON columns in entities are mapped as `String`; serialize/deserialize manually with Jackson `ObjectMapper`.
 - The AI module uses a `MockChatModel` that detects keywords like "保本", "收益率", "稳赚" to generate realistic violation results without an actual LLM.
+- **review-system** excludes Redis, Elasticsearch, Neo4j, and Milvus auto-configurations in `application.yml` and `application-test.yml`. These services are not needed for local dev/testing. If you add those services, remove the corresponding exclusion from `spring.autoconfigure.exclude`.
+- Both projects cannot run simultaneously on port 8080. Stop one before starting the other.
 
 ### API Exploration
 Swagger UI is available at `http://localhost:8080/swagger-ui.html` and OpenAPI spec at `/v3/api-docs`.
