@@ -1,13 +1,13 @@
 package com.review.module.pipeline.dto;
 
 import com.review.module.agent.dto.ReviewIssue;
+import com.review.module.review.entity.ReviewCardResultDO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
-import java.util.Map;
 
 @Data
 @Builder
@@ -16,10 +16,23 @@ import java.util.Map;
 public class ReviewPipelineResult {
 
     private List<ReviewIssue> results;
-    private List<String> missingElements;
-    private Map<Integer, List<ReviewIssue>> cardResults;
+    private List<MissingElementInfo> missingElements;
+    private List<ReviewCardResultDO> cardResults;
     private String overallVerdict;
     private int riskScore;
     private String riskLevel;
-    private long totalLatencyMs;
+    private int totalLatencyMs;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MissingElementInfo {
+        private int cardCategory;
+        private String element;
+        private String requirement;
+        private String severity;
+        private String suggestion;
+        private Long lawArticleId;
+    }
 }

@@ -3,6 +3,8 @@ package com.review.module.review.service.impl;
 import com.review.common.exception.ErrorCode;
 import com.review.common.exception.ServiceException;
 import com.review.common.result.PageResult;
+import com.review.module.pipeline.ReviewPipeline;
+import com.review.module.pipeline.dto.ReviewPipelineResult;
 import com.review.module.review.entity.ReviewCardResultDO;
 import com.review.module.review.entity.ReviewMissingElementDO;
 import com.review.module.review.entity.ReviewResultDO;
@@ -14,14 +16,17 @@ import com.review.module.review.repository.ReviewTaskRepository;
 import com.review.module.review.service.ReviewTaskService;
 import com.review.module.review.vo.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReviewTaskServiceImpl implements ReviewTaskService {
@@ -30,6 +35,7 @@ public class ReviewTaskServiceImpl implements ReviewTaskService {
     private final ReviewResultRepository reviewResultRepository;
     private final ReviewMissingElementRepository reviewMissingElementRepository;
     private final ReviewCardResultRepository reviewCardResultRepository;
+    private final ReviewPipeline reviewPipeline;
 
     @Override
     @Transactional
@@ -51,7 +57,80 @@ public class ReviewTaskServiceImpl implements ReviewTaskService {
                 .reviewStatus("PENDING")
                 .build();
         ReviewTaskDO saved = reviewTaskRepository.save(task);
-        return toRespVO(saved);
+
+        try {
+            saved.setReviewStatus("REVIEWING");
+            reviewTaskRepository.save(saved);
+
+            ReviewPipelineResult pipelineResult = reviewPipeline.execute(saved);
+
+            if (pipelineResult.getResults() != null) {
+                for (var issue : pipelineResult.getResults()) {
+                    ReviewResultDO result = ReviewResultDO.builder()
+                            .taskId(saved.getId())
+                            .tenantId(saved.getTenantId())
+                            .cardCategory(issue.getCardCategory())
+                            .segmentIndex(issue.getSegmentIndex())
+                            .originalText(issue.getOriginalText())
+                            .matchedText(issue.getLocationText())
+                            .charOffsetStart(issue.getCharOffset())
+                            .charOffsetEnd(issue.getCharOffset() != null && issue.getCharLength() != null
+                                    ? issue.getCharOffset() + issue.getCharLength() : null)
+                            .verdict(issue.getVerdict())
+                            .confidence(issue.getConfidence() != null ? java.math.BigDecimal.valueOf(issue.getConfidence()) : null)
+                            .issueType(issue.getIssueType())
+                            .severity(issue.getSeverity())
+                            .description(issue.getDescription())
+                            .citedArticleCode(issue.getCitedArticleCode())
+                            .citedLawName(issue.getCitedLawName())
+                            .citationStatus(issue.getCitationStatus() != null ? issue.getCitationStatus() : "pending")
+                            .suggestion(issue.getSuggestion())
+                            .suggestionType(issue.getSuggestionType())
+                            .build();
+                    reviewResultRepository.save(result);
+                }
+            }
+
+            if (pipelineResult.getMissingElements() != null) {
+                for (var me : pipelineResult.getMissingElements()) {
+                    ReviewMissingElementDO missing = ReviewMissingElementDO.builder()
+                            .taskId(saved.getId())
+                            .tenantId(saved.getTenantId())
+                            .cardCategory(me.getCardCategory())
+                            .element(me.getElement())
+                            .requirement(me.getRequirement())
+                            .severity(me.getSeverity() != null ? me.getSeverity() : "major")
+                            .suggestion(me.getSuggestion())
+                            .build();
+                    reviewMissingElementRepository.save(missing);
+                }
+            }
+
+            if (pipelineResult.getCardResults() != null) {
+                for (var cr : pipelineResult.getCardResults()) {
+                    reviewCardResultRepository.save(cr);
+                }
+            }
+
+            saved.setOverallVerdict(pipelineResult.getOverallVerdict());
+            saved.setRiskScore(pipelineResult.getRiskScore());
+            saved.setRiskLevel(pipelineResult.getRiskLevel());
+            saved.setReviewStatus("COMPLETED");
+            saved.setCompletedAt(LocalDateTime.now());
+            saved.setTotalLatencyMs(pipelineResult.getTotalLatencyMs());
+            reviewTaskRepository.save(saved);
+
+            log.info("Review completed: taskId={}, verdict={}, riskScore={}, riskLevel={}",
+                    saved.getId(), saved.getOverallVerdict(), saved.getRiskScore(), saved.getRiskLevel());
+        } catch (Exception e) {
+            log.error("Review pipeline failed for task {}: {}", saved.getId(), e.getMessage(), e);
+            saved.setReviewStatus("COMPLETED");
+            saved.setOverallVerdict("needs_review");
+            saved.setCompletedAt(LocalDateTime.now());
+            reviewTaskRepository.save(saved);
+        }
+
+        return getById(saved.getId(), saved.getTenantId());
     }
 
     @Override

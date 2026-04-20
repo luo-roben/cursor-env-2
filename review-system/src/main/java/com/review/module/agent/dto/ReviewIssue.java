@@ -11,14 +11,14 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ReviewIssue {
 
-    private int cardCategory;
-    private int segmentIndex;
+    private Integer cardCategory;
+    private Integer segmentIndex;
     private String originalText;
     private String locationText;
-    private int charOffset;
-    private int charLength;
+    private Integer charOffset;
+    private Integer charLength;
     private String verdict;
-    private double confidence;
+    private Double confidence;
     private String issueType;
     private String severity;
     private String description;

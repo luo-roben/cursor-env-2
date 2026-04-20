@@ -12,6 +12,7 @@ import com.review.module.parser.dto.ParsedClause;
 import com.review.module.parser.dto.ParsedContract;
 import com.review.module.pipeline.ReviewPipeline;
 import com.review.module.pipeline.dto.ReviewPipelineResult;
+import com.review.module.review.entity.ReviewCardResultDO;
 import com.review.module.verification.CitationVerifier;
 import com.review.module.verification.RiskScoreCalculator;
 import lombok.RequiredArgsConstructor;
@@ -63,7 +64,16 @@ public class ReviewPipelineImpl implements ReviewPipeline {
         // Step 3: Quick filter
         QuickFilterResult filterResult = quickFilterService.filter(
                 context.getContent(), context.getCustomRules());
-        List<String> missingElements = new ArrayList<>(filterResult.getMissingStatements());
+        List<ReviewPipelineResult.MissingElementInfo> missingElements = new ArrayList<>();
+        for (String ms : filterResult.getMissingStatements()) {
+            missingElements.add(ReviewPipelineResult.MissingElementInfo.builder()
+                    .cardCategory(CardCategory.FORMAT_ELEMENTS.getCode())
+                    .element(ms)
+                    .requirement("企业必备声明缺失")
+                    .severity("major")
+                    .suggestion("请添加必备声明: \"" + ms + "\"")
+                    .build());
+        }
 
         // Step 4: ACE context assembly
         AssembledContext assembledContext = contextAssembler.assemble(context);
@@ -126,11 +136,37 @@ public class ReviewPipelineImpl implements ReviewPipeline {
         // Step 6: Post-processing
         List<ReviewIssue> verifiedIssues = citationVerifier.verify(allIssues);
 
+        List<String> missingElementNames = missingElements.stream()
+                .map(ReviewPipelineResult.MissingElementInfo::getElement)
+                .toList();
         RiskScoreCalculator.RiskScoreResult riskResult = riskScoreCalculator.calculate(
-                verifiedIssues, missingElements);
+                verifiedIssues, missingElementNames);
 
         // Step 7: Determine overall verdict
         String overallVerdict = determineOverallVerdict(verifiedIssues);
+
+        List<ReviewCardResultDO> cardResultEntities = new ArrayList<>();
+        for (CardCategory cc : CardCategory.values()) {
+            List<ReviewIssue> cardIssues = verifiedIssues.stream()
+                    .filter(i -> i.getCardCategory() == cc.getCode())
+                    .toList();
+            String maxSev = cardIssues.stream()
+                    .map(ReviewIssue::getSeverity)
+                    .filter(Objects::nonNull)
+                    .min(Comparator.comparingInt(s -> switch (s.toLowerCase()) {
+                        case "critical" -> 0; case "major" -> 1; case "minor" -> 2; default -> 3;
+                    }))
+                    .orElse(null);
+            cardResultEntities.add(ReviewCardResultDO.builder()
+                    .taskId(context.getTaskId())
+                    .cardCategory(cc.getCode())
+                    .cardName(cc.getTitle())
+                    .issueCount(cardIssues.size())
+                    .maxSeverity(maxSev)
+                    .status(cardIssues.isEmpty() ? "clean" : "has_issues")
+                    .agentName(cc.name() + "Agent")
+                    .build());
+        }
 
         long totalLatency = System.currentTimeMillis() - startTime;
         log.info("Pipeline completed for taskId={}, issues={}, riskScore={}, latencyMs={}",
@@ -139,11 +175,11 @@ public class ReviewPipelineImpl implements ReviewPipeline {
         return ReviewPipelineResult.builder()
                 .results(verifiedIssues)
                 .missingElements(missingElements)
-                .cardResults(cardResults)
+                .cardResults(cardResultEntities)
                 .overallVerdict(overallVerdict)
                 .riskScore(riskResult.score())
                 .riskLevel(riskResult.level())
-                .totalLatencyMs(totalLatency)
+                .totalLatencyMs((int) totalLatency)
                 .build();
     }
 
