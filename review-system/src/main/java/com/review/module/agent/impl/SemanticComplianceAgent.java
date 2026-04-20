@@ -10,6 +10,7 @@ import com.review.module.llm.model.ModelRouter;
 import com.review.module.llm.prompt.PromptTemplateManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -23,6 +24,9 @@ public class SemanticComplianceAgent implements ReviewCardAgent {
     private final ModelRouter modelRouter;
     private final PromptTemplateManager promptTemplateManager;
     private final ObjectMapper objectMapper;
+
+    @Value("${review.llm.default-model:mock}")
+    private String defaultModel;
 
     @Override
     public CardCategory getCardCategory() {
@@ -47,7 +51,7 @@ public class SemanticComplianceAgent implements ReviewCardAgent {
             variables.put("contentType", context.getContentType() != null ? context.getContentType() : "");
 
             String prompt = promptTemplateManager.buildReviewPrompt(variables);
-            String response = modelRouter.generate("mock", prompt);
+            String response = modelRouter.generate(defaultModel, prompt);
 
             issues.addAll(parseResponse(response));
         } catch (Exception e) {

@@ -1,16 +1,23 @@
 package com.review.module.verification.impl;
 
 import com.review.module.agent.dto.ReviewIssue;
+import com.review.module.knowledge.entity.LawArticleDO;
+import com.review.module.knowledge.repository.LawArticleRepository;
 import com.review.module.verification.CitationVerifier;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class CitationVerifierImpl implements CitationVerifier {
+
+    private final LawArticleRepository lawArticleRepository;
 
     @Override
     public List<ReviewIssue> verify(List<ReviewIssue> issues) {
@@ -30,14 +37,12 @@ public class CitationVerifierImpl implements CitationVerifier {
             return issue;
         }
 
-        // Step 1: Exact match
         boolean exactMatch = tryExactMatch(issue.getCitedLawName(), issue.getCitedArticleCode());
         if (exactMatch) {
             issue.setCitationStatus("VERIFIED");
             return issue;
         }
 
-        // Step 2: Fuzzy match
         String correctedArticle = tryFuzzyMatch(issue.getCitedLawName(), issue.getCitedArticleCode());
         if (correctedArticle != null) {
             issue.setCitationStatus("CORRECTED");
@@ -45,29 +50,35 @@ public class CitationVerifierImpl implements CitationVerifier {
             return issue;
         }
 
-        // Step 3: Mark as hallucination
         issue.setCitationStatus("UNVERIFIED");
         return issue;
     }
 
     private boolean tryExactMatch(String lawName, String articleCode) {
-        // In production, this would query LawArticleRepository
-        // For MVP, we accept all citations from known law names
-        List<String> knownLaws = List.of(
-                "证券期货投资者适当性管理办法",
-                "中华人民共和国民法典",
-                "中华人民共和国合同法",
-                "中华人民共和国证券法",
-                "中华人民共和国广告法",
-                "证券投资基金销售管理办法"
-        );
+        Optional<LawArticleDO> article = lawArticleRepository.findByArticleIdAndLawName(articleCode, lawName);
+        if (article.isPresent()) {
+            return true;
+        }
 
-        return knownLaws.stream().anyMatch(lawName::contains);
+        List<LawArticleDO> publishedArticles = lawArticleRepository.findByStatus("published");
+        return publishedArticles.stream()
+                .anyMatch(a -> a.getLawName().contains(lawName) || lawName.contains(a.getLawName())
+                        && a.getArticleId().equals(articleCode));
     }
 
     private String tryFuzzyMatch(String lawName, String articleCode) {
-        // Fuzzy matching: try to find close matches
-        // For MVP, return null (no correction)
+        List<LawArticleDO> publishedArticles = lawArticleRepository.findByStatus("published");
+
+        Optional<LawArticleDO> match = publishedArticles.stream()
+                .filter(a -> (a.getLawName().contains(lawName) || lawName.contains(a.getLawName()))
+                        && a.getArticleId().startsWith(articleCode.length() > 2 ? articleCode.substring(0, 2) : articleCode))
+                .findFirst();
+
+        if (match.isPresent()) {
+            log.info("Fuzzy match found: {} -> {}", articleCode, match.get().getArticleId());
+            return match.get().getArticleId();
+        }
+
         return null;
     }
 }

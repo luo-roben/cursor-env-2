@@ -3,8 +3,18 @@ package com.review.module.context.impl;
 import com.review.infrastructure.vector.VectorStoreService;
 import com.review.infrastructure.vector.dto.VectorSearchResult;
 import com.review.module.agent.dto.*;
+import com.review.module.cases.entity.ReviewCaseDO;
+import com.review.module.cases.repository.ReviewCaseRepository;
 import com.review.module.context.ContextAssembler;
 import com.review.module.context.dto.AssembledContext;
+import com.review.module.knowledge.entity.ContractTemplateClauseDO;
+import com.review.module.knowledge.entity.ContractTemplateDO;
+import com.review.module.knowledge.entity.LawArticleDO;
+import com.review.module.knowledge.repository.ContractTemplateClauseRepository;
+import com.review.module.knowledge.repository.ContractTemplateRepository;
+import com.review.module.knowledge.repository.LawArticleRepository;
+import com.review.module.rules.entity.TenantCustomRuleDO;
+import com.review.module.rules.repository.TenantCustomRuleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +32,12 @@ public class ContextAssemblerImpl implements ContextAssembler {
     private static final int MAX_CASES = 10;
     private static final int TOKEN_BUDGET = 4000;
 
+    private final LawArticleRepository lawArticleRepository;
+    private final TenantCustomRuleRepository tenantCustomRuleRepository;
+    private final ReviewCaseRepository reviewCaseRepository;
+    private final ContractTemplateRepository contractTemplateRepository;
+    private final ContractTemplateClauseRepository contractTemplateClauseRepository;
+
     @Autowired(required = false)
     private VectorStoreService vectorStoreService;
 
@@ -29,29 +45,88 @@ public class ContextAssemblerImpl implements ContextAssembler {
     public AssembledContext assemble(ReviewContext context) {
         List<LawArticleInfo> allArticles = new ArrayList<>();
         List<CaseInfo> allCases = new ArrayList<>();
-        List<CustomRuleInfo> customRules = context.getCustomRules() != null ? context.getCustomRules() : new ArrayList<>();
+        List<CustomRuleInfo> customRules = new ArrayList<>();
         List<TemplateDiffResult> templateDiffs = context.getTemplateDiffResults() != null ? context.getTemplateDiffResults() : new ArrayList<>();
 
-        // Path A: by content type
+        // Path A: by content type — query DB for published articles matching contentType
+        if (context.getContentType() != null && !context.getContentType().isEmpty()) {
+            try {
+                List<LawArticleDO> contentTypeArticles = lawArticleRepository.findPublishedByContentType(context.getContentType());
+                allArticles.addAll(toLawArticleInfoList(contentTypeArticles));
+            } catch (Exception e) {
+                log.warn("Failed to query articles by contentType: {}", e.getMessage());
+            }
+        }
         if (context.getLawArticles() != null) {
             allArticles.addAll(context.getLawArticles());
         }
 
-        // Path B: by product type (would normally query DB)
-        // For now, use articles already in context
+        // Path B: by product type — query DB for published articles matching productType
+        if (context.getProductType() != null && !context.getProductType().isEmpty()) {
+            try {
+                List<LawArticleDO> productTypeArticles = lawArticleRepository.findPublishedByProductType(context.getProductType());
+                allArticles.addAll(toLawArticleInfoList(productTypeArticles));
+            } catch (Exception e) {
+                log.warn("Failed to query articles by productType: {}", e.getMessage());
+            }
+        }
 
-        // Path C: by content semantics (vector search)
+        // Path C: by content semantics (vector search for similar law articles)
         allArticles.addAll(vectorSearchArticles(context.getContent()));
 
         // Path D: by similar cases (vector search)
         allCases.addAll(vectorSearchCases(context.getContent()));
 
-        // Path E: custom rules (direct load, already in context)
+        // Path E: custom rules by tenantId
+        if (context.getTenantId() != null) {
+            try {
+                List<TenantCustomRuleDO> tenantRules = tenantCustomRuleRepository.findByTenantIdAndEnabledTrue(context.getTenantId());
+                customRules.addAll(tenantRules.stream()
+                        .map(r -> CustomRuleInfo.builder()
+                                .id(r.getId())
+                                .ruleType(r.getRuleType())
+                                .content(r.getContent())
+                                .matchMode(r.getMatchMode())
+                                .severity(r.getSeverityIfTriggered())
+                                .build())
+                        .toList());
+            } catch (Exception e) {
+                log.warn("Failed to query tenant custom rules: {}", e.getMessage());
+            }
+        }
+        if (context.getCustomRules() != null) {
+            customRules.addAll(context.getCustomRules());
+        }
+
+        // Path F: contract template clause comparison
+        if ("CONTRACT".equalsIgnoreCase(context.getDocumentType()) && context.getContractType() != null) {
+            try {
+                List<ContractTemplateDO> templates = contractTemplateRepository.findByContractTypeAndStatus(context.getContractType(), "published");
+                if (!templates.isEmpty()) {
+                    ContractTemplateDO template = templates.get(0);
+                    List<ContractTemplateClauseDO> requiredClauses = contractTemplateClauseRepository
+                            .findByTemplateIdAndIsRequired(template.getTemplateId(), 1);
+                    for (ContractTemplateClauseDO clause : requiredClauses) {
+                        if (context.getContent() != null && !context.getContent().contains(clause.getClauseTitle() != null ? clause.getClauseTitle() : clause.getClauseText())) {
+                            templateDiffs.add(TemplateDiffResult.builder()
+                                    .clauseNumber(clause.getClauseId())
+                                    .templateClauseText(clause.getClauseText())
+                                    .actualClauseText(null)
+                                    .diffType("MISSING")
+                                    .severity(clause.getRiskLevel() != null ? clause.getRiskLevel().toUpperCase() : "MAJOR")
+                                    .build());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to query contract template clauses: {}", e.getMessage());
+            }
+        }
+
+        // Also load cases from context
         if (context.getCases() != null) {
             allCases.addAll(context.getCases());
         }
-
-        // Path F: contract template diff (already in context for contracts)
 
         // Dedup articles by ID
         List<LawArticleInfo> dedupedArticles = deduplicateArticles(allArticles);
@@ -72,6 +147,18 @@ public class ContextAssemblerImpl implements ContextAssembler {
                 .templateDiffResults(templateDiffs)
                 .assembledPrompt(assembledPrompt)
                 .build();
+    }
+
+    private List<LawArticleInfo> toLawArticleInfoList(List<LawArticleDO> articles) {
+        return articles.stream()
+                .map(a -> LawArticleInfo.builder()
+                        .id(a.getId())
+                        .lawName(a.getLawName())
+                        .articleId(a.getArticleId())
+                        .originalText(a.getOriginalText())
+                        .normType(a.getNormType())
+                        .build())
+                .toList();
     }
 
     private List<LawArticleInfo> vectorSearchArticles(String content) {

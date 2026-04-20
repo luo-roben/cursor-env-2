@@ -2,6 +2,7 @@ package com.review.module.feedback.service.impl;
 
 import com.review.common.exception.ErrorCode;
 import com.review.common.exception.ServiceException;
+import com.review.module.cases.service.CaseSedimentationService;
 import com.review.module.feedback.entity.HumanFeedbackDO;
 import com.review.module.feedback.repository.HumanFeedbackRepository;
 import com.review.module.feedback.service.HumanFeedbackService;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 public class HumanFeedbackServiceImpl implements HumanFeedbackService {
 
     private final HumanFeedbackRepository humanFeedbackRepository;
+    private final CaseSedimentationService caseSedimentationService;
 
     @Override
     @Transactional
@@ -43,6 +45,13 @@ public class HumanFeedbackServiceImpl implements HumanFeedbackService {
 
         entity = humanFeedbackRepository.save(entity);
         log.info("Feedback submitted: id={}, taskId={}, action={}", entity.getId(), entity.getTaskId(), entity.getAction());
+
+        try {
+            caseSedimentationService.sediment(entity.getId());
+        } catch (Exception e) {
+            log.error("Case sedimentation failed for feedback id={}, but feedback was saved successfully", entity.getId(), e);
+        }
+
         return toRespVO(entity);
     }
 

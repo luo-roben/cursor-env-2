@@ -11,6 +11,7 @@ import com.review.module.llm.model.ModelRouter;
 import com.review.module.llm.prompt.PromptTemplateManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -26,6 +27,9 @@ public class LogicClauseAgent implements ReviewCardAgent {
     private final ModelRouter modelRouter;
     private final PromptTemplateManager promptTemplateManager;
     private final ObjectMapper objectMapper;
+
+    @Value("${review.llm.default-model:mock}")
+    private String defaultModel;
 
     private static final Pattern AMOUNT_PATTERN = Pattern.compile("([零壹贰叁肆伍陆柒捌玖拾佰仟万亿]+元|\\d+(?:\\.\\d+)?\\s*(?:元|万元|亿元))");
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{4}年\\d{1,2}月\\d{1,2}日|\\d{4}-\\d{2}-\\d{2})");
@@ -171,7 +175,7 @@ public class LogicClauseAgent implements ReviewCardAgent {
         variables.put("customRules", "");
 
         String prompt = promptTemplateManager.buildContractReviewPrompt(variables);
-        String response = modelRouter.generate("mock", prompt);
+        String response = modelRouter.generate(defaultModel, prompt);
 
         try {
             JsonNode root = objectMapper.readTree(response);
