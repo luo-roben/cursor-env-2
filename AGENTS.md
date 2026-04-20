@@ -1,79 +1,21 @@
-# AGENTS.md
-
 ## Cursor Cloud specific instructions
 
-### Project Overview
-This repository contains two Spring Boot 3.2.5 (Java 21) backend projects:
+### Project overview
+Spring Boot 3.2.5 / Java 21 review system located at `/workspace/review-system/`. Uses Maven for builds, H2 in-memory DB for tests, MySQL for production.
 
-1. **`compliance-review/`** — v1 intelligent compliance review system (marketing materials). Uses MySQL 8 + mock LLM.
-2. **`review-system/`** — v2 Universal Intelligent Review System (all document types: contracts, marketing, prospectuses). Uses MySQL 8 + mock LLM for MVP; designed for Elasticsearch, Neo4j, Redis, and Milvus integration in later phases (these are excluded from auto-config for local dev).
+### Build / Test / Run
+- **Compile**: `mvn compile` (from `/workspace/review-system/`)
+- **Test**: `mvn test` — uses H2 in-memory DB via `application-test.yml` (profile `test`), no external services needed
+- **Run (dev)**: Requires MySQL at `localhost:3306` (see `application.yml`). Redis, Elasticsearch, Neo4j autoconfiguration is excluded so the app starts without them.
 
-### Prerequisites
-- Java 21 is pre-installed. Maven and MySQL 8 are installed by the update script.
-- MySQL 8 must be running. Start with `sudo service mysql start`.
-- Database and user must exist (see below).
+### Key conventions
+- Entities: `@Data @Builder @NoArgsConstructor @AllArgsConstructor`, `@PrePersist`/`@PreUpdate` for timestamps
+- Services: interface + impl pattern, `@Transactional` on writes
+- Controllers: `@Tag`/`@Operation` OpenAPI annotations, `CommonResult<T>` wrapping
+- VOs: separate `CreateReqVO`, `RespVO`, `PageReqVO` per domain object
+- Package structure: `com.review.module.{system,knowledge,review,llm,agent}`
 
-### Database Setup (one-time)
-```bash
-sudo service mysql start
-sudo mysql -u root -e "
-  CREATE DATABASE IF NOT EXISTS compliance_review DEFAULT CHARSET utf8mb4;
-  CREATE DATABASE IF NOT EXISTS compliance_review_test DEFAULT CHARSET utf8mb4;
-  CREATE USER IF NOT EXISTS 'compliance'@'localhost' IDENTIFIED BY 'compliance123';
-  GRANT ALL PRIVILEGES ON compliance_review.* TO 'compliance'@'localhost';
-  GRANT ALL PRIVILEGES ON compliance_review_test.* TO 'compliance'@'localhost';
-  CREATE DATABASE IF NOT EXISTS review_system DEFAULT CHARSET utf8mb4;
-  CREATE USER IF NOT EXISTS 'review'@'localhost' IDENTIFIED BY 'review123';
-  GRANT ALL PRIVILEGES ON review_system.* TO 'review'@'localhost';
-  FLUSH PRIVILEGES;
-"
-```
-
-### Common Commands
-**compliance-review** (from `/workspace/compliance-review/`):
-
-| Action | Command |
-|---|---|
-| Compile | `mvn compile` |
-| Unit tests | `mvn test` |
-| Run app (dev) | `mvn spring-boot:run` |
-| Package | `mvn package -DskipTests` |
-
-**review-system** (from `/workspace/review-system/`):
-
-| Action | Command |
-|---|---|
-| Compile | `mvn compile` |
-| Unit tests | `mvn test` |
-| Run app (dev) | `mvn spring-boot:run` |
-| Package | `mvn package -DskipTests` |
-
-Both apps start on port **8080** (run only one at a time). Schema auto-initializes via `spring.sql.init` from `src/main/resources/db/schema.sql`.
-
-### Key Gotchas
-- The JDBC URL must use `characterEncoding=UTF-8` (not `utf8mb4`) — the MySQL Connector/J driver does not recognize `utf8mb4` as a Java charset.
-- The `spring.sql.init.mode=always` means schema.sql runs on every startup; all DDL uses `CREATE TABLE IF NOT EXISTS` and `ON DUPLICATE KEY UPDATE` so it's safe for repeated runs.
-- JSON columns in entities are mapped as `String`; serialize/deserialize manually with Jackson `ObjectMapper`.
-- The AI module uses a `MockChatModel` that detects keywords like "保本", "收益率", "稳赚" to generate realistic violation results without an actual LLM.
-- **review-system** excludes Redis, Elasticsearch, Neo4j, and Milvus auto-configurations in `application.yml` and `application-test.yml`. These services are not needed for local dev/testing. If you add those services, remove the corresponding exclusion from `spring.autoconfigure.exclude`.
-- Both projects cannot run simultaneously on port 8080. Stop one before starting the other.
-
-### API Exploration
-Swagger UI is available at `http://localhost:8080/swagger-ui.html` and OpenAPI spec at `/v3/api-docs`.
-
-### Running the App
-1. `sudo service mysql start` (if not already running)
-2. `cd /workspace/compliance-review && mvn spring-boot:run`
-3. The app auto-creates tables from `schema.sql` on startup and inserts a default tenant + admin user.
-
-### Testing a Review (hello world)
-```bash
-# Create & publish a law article
-curl -X POST http://localhost:8080/api/v1/law/articles -H "Content-Type: application/json" \
-  -d '{"sourceId":1,"lawName":"证券期货投资者适当性管理办法","articleId":"第二十条第一款","originalText":"禁止使用保本、无风险等宣传用语","normType":"禁止","authorityLevel":3}'
-curl -X PUT "http://localhost:8080/api/v1/law/articles/1/publish?confirmedBy=1"
-
-# Submit compliance review
-curl -X POST http://localhost:8080/api/v1/review/submit -H "Content-Type: application/json" \
-  -d '{"tenantId":1,"submittedBy":1,"contentType":"营销海报","productType":"公募基金","originalContent":"保本保收益，零风险！"}'
-```
+### Gotchas
+- The test profile excludes Redis, Elasticsearch, and Neo4j auto-configuration. If you add new Spring Data stores, add exclusions to `application-test.yml`.
+- JPA `ddl-auto` is `none` in production (schema managed by `schema.sql`), `create-drop` in tests.
+- Lombok + MapStruct annotation processors are configured in `pom.xml` compiler plugin.
