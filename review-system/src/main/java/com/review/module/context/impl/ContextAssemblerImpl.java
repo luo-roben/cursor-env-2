@@ -13,6 +13,7 @@ import com.review.module.knowledge.entity.LawArticleDO;
 import com.review.module.knowledge.repository.ContractTemplateClauseRepository;
 import com.review.module.knowledge.repository.ContractTemplateRepository;
 import com.review.module.knowledge.repository.LawArticleRepository;
+import com.review.module.knowledge.service.TemplateDiffService;
 import com.review.module.rules.entity.TenantCustomRuleDO;
 import com.review.module.rules.repository.TenantCustomRuleRepository;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,9 @@ public class ContextAssemblerImpl implements ContextAssembler {
 
     @Autowired(required = false)
     private VectorStoreService vectorStoreService;
+
+    @Autowired(required = false)
+    private TemplateDiffService templateDiffService;
 
     @Override
     public AssembledContext assemble(ReviewContext context) {
@@ -120,6 +124,18 @@ public class ContextAssemblerImpl implements ContextAssembler {
                 }
             } catch (Exception e) {
                 log.warn("Failed to query contract template clauses: {}", e.getMessage());
+            }
+        }
+
+        // Path G: template diff with LCS alignment
+        if ("CONTRACT".equalsIgnoreCase(context.getDocumentType()) && context.getContractType() != null
+                && templateDiffService != null) {
+            try {
+                List<TemplateDiffResult> lcsDiffs = templateDiffService.diff(
+                        context.getContent(), context.getContractType(), context.getTenantId());
+                templateDiffs.addAll(lcsDiffs);
+            } catch (Exception e) {
+                log.warn("Template diff with LCS failed: {}", e.getMessage());
             }
         }
 
@@ -237,17 +253,59 @@ public class ContextAssemblerImpl implements ContextAssembler {
     }
 
     private List<LawArticleInfo> applyTokenBudget(List<LawArticleInfo> articles) {
-        int totalTokens = 0;
-        List<LawArticleInfo> budgeted = new ArrayList<>();
+        if (articles.isEmpty()) return articles;
+
+        Map<String, List<LawArticleInfo>> buckets = new LinkedHashMap<>();
         for (LawArticleInfo article : articles) {
-            int tokenEst = estimateTokens(article.getOriginalText());
-            if (totalTokens + tokenEst <= TOKEN_BUDGET) {
-                budgeted.add(article);
-                totalTokens += tokenEst;
-            } else {
-                break;
+            String normType = article.getNormType() != null ? article.getNormType() : "其他";
+            buckets.computeIfAbsent(normType, k -> new ArrayList<>()).add(article);
+        }
+
+        int minFloor = 2;
+        int totalBudget = TOKEN_BUDGET;
+        List<LawArticleInfo> budgeted = new ArrayList<>();
+        int usedTokens = 0;
+
+        Map<String, List<LawArticleInfo>> floorSelected = new LinkedHashMap<>();
+        for (Map.Entry<String, List<LawArticleInfo>> entry : buckets.entrySet()) {
+            List<LawArticleInfo> bucket = entry.getValue();
+            int toTake = Math.min(minFloor, bucket.size());
+            List<LawArticleInfo> selected = new ArrayList<>(bucket.subList(0, toTake));
+            floorSelected.put(entry.getKey(), selected);
+            for (LawArticleInfo a : selected) {
+                usedTokens += estimateTokens(a.getOriginalText());
             }
         }
+
+        budgeted.addAll(floorSelected.values().stream().flatMap(List::stream).toList());
+
+        int remainingBudget = totalBudget - usedTokens;
+        if (remainingBudget > 0) {
+            Map<String, List<LawArticleInfo>> remaining = new LinkedHashMap<>();
+            for (Map.Entry<String, List<LawArticleInfo>> entry : buckets.entrySet()) {
+                List<LawArticleInfo> bucket = entry.getValue();
+                List<LawArticleInfo> floor = floorSelected.get(entry.getKey());
+                if (bucket.size() > floor.size()) {
+                    remaining.put(entry.getKey(), new ArrayList<>(bucket.subList(floor.size(), bucket.size())));
+                }
+            }
+
+            int totalRemaining = remaining.values().stream().mapToInt(List::size).sum();
+            if (totalRemaining > 0) {
+                for (Map.Entry<String, List<LawArticleInfo>> entry : remaining.entrySet()) {
+                    int bucketShare = (int) ((double) entry.getValue().size() / totalRemaining * remainingBudget);
+                    int bucketUsed = 0;
+                    for (LawArticleInfo article : entry.getValue()) {
+                        int tokenEst = estimateTokens(article.getOriginalText());
+                        if (bucketUsed + tokenEst <= bucketShare) {
+                            budgeted.add(article);
+                            bucketUsed += tokenEst;
+                        }
+                    }
+                }
+            }
+        }
+
         return budgeted;
     }
 

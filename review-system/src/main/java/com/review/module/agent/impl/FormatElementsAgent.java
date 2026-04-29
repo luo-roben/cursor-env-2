@@ -4,6 +4,7 @@ import com.review.common.enums.CardCategory;
 import com.review.module.agent.ReviewCardAgent;
 import com.review.module.agent.dto.ReviewContext;
 import com.review.module.agent.dto.ReviewIssue;
+import com.review.module.agent.dto.CustomRuleInfo;
 import com.review.module.checklist.entity.ComplianceChecklistDO;
 import com.review.module.checklist.repository.ComplianceChecklistRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -93,6 +94,55 @@ public class FormatElementsAgent implements ReviewCardAgent {
                             .suggestionType("REVISION")
                             .build());
                 }
+            }
+        }
+
+        issues.addAll(checkContractClauseTemplateRules(context));
+
+        return issues;
+    }
+
+    private List<ReviewIssue> checkContractClauseTemplateRules(ReviewContext context) {
+        List<ReviewIssue> issues = new ArrayList<>();
+        if (context.getCustomRules() == null || context.getCustomRules().isEmpty()) {
+            return issues;
+        }
+        String content = context.getContent();
+        if (content == null || content.isEmpty()) {
+            return issues;
+        }
+
+        for (CustomRuleInfo rule : context.getCustomRules()) {
+            if (!"CONTRACT_CLAUSE_TEMPLATE".equalsIgnoreCase(rule.getRuleType())) {
+                continue;
+            }
+            String ruleContent = rule.getContent();
+            if (ruleContent == null || ruleContent.isEmpty()) {
+                continue;
+            }
+
+            boolean found = false;
+            String[] keywords = ruleContent.split("[,;，；|]");
+            for (String keyword : keywords) {
+                String trimmed = keyword.trim();
+                if (!trimmed.isEmpty() && content.contains(trimmed)) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                String severity = rule.getSeverity() != null ? rule.getSeverity().toUpperCase() : "MAJOR";
+                issues.add(ReviewIssue.builder()
+                        .cardCategory(CardCategory.FORMAT_ELEMENTS.getCode())
+                        .verdict("VIOLATION")
+                        .confidence(0.8)
+                        .issueType("missing_contract_clause_template")
+                        .severity(severity)
+                        .description("缺少合同模板必备条款: " + ruleContent)
+                        .suggestion("请根据合同模板要求补充条款: " + ruleContent)
+                        .suggestionType("REVISION")
+                        .build());
             }
         }
 

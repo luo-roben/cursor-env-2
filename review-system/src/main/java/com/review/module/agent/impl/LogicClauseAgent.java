@@ -12,6 +12,7 @@ import com.review.module.llm.prompt.PromptTemplateManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
+@Order(1)
 @RequiredArgsConstructor
 public class LogicClauseAgent implements ReviewCardAgent {
 

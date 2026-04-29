@@ -87,6 +87,9 @@ public class ReviewCaseDO {
     @Column(name = "decay_weight", precision = 5, scale = 4)
     private BigDecimal decayWeight;
 
+    @Column(name = "last_hit_at")
+    private LocalDateTime lastHitAt;
+
     @Column(name = "status", nullable = false, length = 20)
     private String status;
 

@@ -265,6 +265,7 @@ CREATE TABLE IF NOT EXISTS review_case (
     is_typical TINYINT NOT NULL DEFAULT 0 COMMENT '是否为典型案例',
     is_shared TINYINT NOT NULL DEFAULT 0 COMMENT '是否跨租户共享',
     decay_weight DECIMAL(5,4) DEFAULT 1.0000 COMMENT '时间衰减权重',
+    last_hit_at DATETIME COMMENT '最后命中时间',
     status VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'active/archived/deprecated',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -360,6 +361,30 @@ CREATE TABLE IF NOT EXISTS review_card_result (
     INDEX idx_card (card_category),
     UNIQUE KEY uk_task_card (task_id, card_category)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='审查卡片结果表';
+
+-- 16. 合同条款节点表
+CREATE TABLE IF NOT EXISTS contract_clause_node (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id BIGINT NOT NULL COMMENT '审查任务ID',
+    clause_number VARCHAR(50) NOT NULL,
+    clause_title VARCHAR(200),
+    clause_type VARCHAR(50),
+    char_offset INT,
+    char_length INT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_task (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 17. 合同条款边表
+CREATE TABLE IF NOT EXISTS contract_clause_edge (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id BIGINT NOT NULL,
+    source_clause VARCHAR(50) NOT NULL,
+    target_clause VARCHAR(50) NOT NULL,
+    relation_type VARCHAR(50) NOT NULL COMMENT 'references/defines/depends/conflicts',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_task (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
 -- Default Data
