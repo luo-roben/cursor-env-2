@@ -22,6 +22,10 @@ public interface LawArticleRepository extends JpaRepository<LawArticleDO, Long> 
     @Query("SELECT la FROM LawArticleDO la WHERE la.status = 'published' AND la.applicableProductTypes LIKE CONCAT('%', :productType, '%')")
     List<LawArticleDO> findPublishedByProductType(@Param("productType") String productType);
 
+    List<LawArticleDO> findBySourceId(Long sourceId);
+
+    List<LawArticleDO> findBySourceIdAndStatus(Long sourceId, String status);
+
     List<LawArticleDO> findByStatus(String status);
 
     Optional<LawArticleDO> findByArticleIdAndStatus(String articleId, String status);

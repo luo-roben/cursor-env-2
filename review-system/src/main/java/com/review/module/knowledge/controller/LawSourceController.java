@@ -2,6 +2,7 @@ package com.review.module.knowledge.controller;
 
 import com.review.common.result.CommonResult;
 import com.review.common.result.PageResult;
+import com.review.module.knowledge.service.LawSourcePipelineService;
 import com.review.module.knowledge.service.LawSourceService;
 import com.review.module.knowledge.vo.LawSourceCreateReqVO;
 import com.review.module.knowledge.vo.LawSourcePageReqVO;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 public class LawSourceController {
 
     private final LawSourceService lawSourceService;
+    private final LawSourcePipelineService lawSourcePipelineService;
 
     @Operation(summary = "创建法规来源")
     @PostMapping
@@ -42,6 +44,20 @@ public class LawSourceController {
     @PutMapping("/{id}/parse-status")
     public CommonResult<Void> updateParseStatus(@PathVariable Long id, @RequestParam String parseStatus) {
         lawSourceService.updateParseStatus(id, parseStatus);
+        return CommonResult.success();
+    }
+
+    @Operation(summary = "触发法规解析")
+    @PostMapping("/{id}/parse")
+    public CommonResult<Void> triggerParsing(@PathVariable Long id) {
+        lawSourcePipelineService.triggerParsing(id);
+        return CommonResult.success();
+    }
+
+    @Operation(summary = "确认所有解析法条")
+    @PostMapping("/{id}/confirm")
+    public CommonResult<Void> confirmAll(@PathVariable Long id, @RequestParam(required = false) Long confirmedBy) {
+        lawSourcePipelineService.confirmAll(id, confirmedBy);
         return CommonResult.success();
     }
 }

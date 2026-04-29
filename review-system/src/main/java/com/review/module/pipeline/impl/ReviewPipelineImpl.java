@@ -18,6 +18,7 @@ import com.review.module.pipeline.span.SpanLocator;
 import com.review.module.registry.DocumentTypeConfig;
 import com.review.module.registry.DocumentTypeRegistry;
 import com.review.module.review.entity.ReviewCardResultDO;
+import com.review.module.review.service.ClauseGraphService;
 import com.review.module.verification.CitationVerifier;
 import com.review.module.verification.RiskScoreCalculator;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,7 @@ public class ReviewPipelineImpl implements ReviewPipeline {
     private final SpanLocator spanLocator;
     private final DocumentTypeRegistry documentTypeRegistry;
     private final ContentParserFactory contentParserFactory;
+    private final ClauseGraphService clauseGraphService;
 
     private final ExecutorService agentExecutor = Executors.newFixedThreadPool(
             Runtime.getRuntime().availableProcessors());
@@ -79,6 +81,12 @@ public class ReviewPipelineImpl implements ReviewPipeline {
                         .map(this::toClauseInfo)
                         .collect(Collectors.toList());
                 context.setClauses(clauses);
+
+                try {
+                    clauseGraphService.buildGraph(context.getTaskId(), parsedContract);
+                } catch (Exception e) {
+                    log.warn("Failed to build clause graph for taskId={}: {}", context.getTaskId(), e.getMessage());
+                }
             }
         }
 
