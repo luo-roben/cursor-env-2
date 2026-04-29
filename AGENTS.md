@@ -15,6 +15,14 @@ Spring Boot 3.2.5 / Java 21 review system located at `/workspace/review-system/`
 - VOs: separate `CreateReqVO`, `RespVO`, `PageReqVO` per domain object
 - Package structure: `com.review.module.{system,knowledge,review,llm,agent,cases,feedback,rules,checklist,filter,parser,context,pipeline,verification,dashboard}` and `com.review.infrastructure.{vector,search,graph,port}`
 
+### Frontend (React + Ant Design)
+- Located at `/workspace/review-system/frontend/`
+- **Install deps**: `npm install` (from `frontend/`)
+- **Dev server**: `npm start` — runs on port 3000, proxies `/api/v1/*` to `http://localhost:8080`
+- **Build**: `npm run build`
+- Stack: React 19, TypeScript, Ant Design 6.x, react-router-dom v7, axios
+- All UI text is in Chinese (zh_CN locale configured)
+
 ### Gotchas
 - The test profile excludes Redis, Elasticsearch, and Neo4j auto-configuration. If you add new Spring Data stores, add exclusions to `application-test.yml`.
 - JPA `ddl-auto` is `none` in production (schema managed by `schema.sql`), `create-drop` in tests.
