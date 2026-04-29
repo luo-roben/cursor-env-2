@@ -17,6 +17,8 @@ import CustomRules from './pages/rules/CustomRules';
 import Checklists from './pages/rules/Checklists';
 import CaseList from './pages/cases/CaseList';
 import ConsistencyDashboard from './pages/dashboard/ConsistencyDashboard';
+import GoldenTests from './pages/golden/GoldenTests';
+import IndustryKnowledge from './pages/knowledge/IndustryKnowledge';
 
 const App: React.FC = () => {
   return (
@@ -47,6 +49,8 @@ const App: React.FC = () => {
             <Route path="rules/custom" element={<CustomRules />} />
             <Route path="rules/checklists" element={<Checklists />} />
             <Route path="cases" element={<CaseList />} />
+            <Route path="golden" element={<GoldenTests />} />
+            <Route path="knowledge/industry" element={<IndustryKnowledge />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>

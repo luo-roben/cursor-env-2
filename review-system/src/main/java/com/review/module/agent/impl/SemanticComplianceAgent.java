@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.review.common.enums.CardCategory;
 import com.review.module.agent.ReviewCardAgent;
 import com.review.module.agent.dto.*;
+import com.review.module.llm.cache.PromptCacheService;
 import com.review.module.llm.model.ModelRouter;
 import com.review.module.llm.prompt.PromptTemplateManager;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class SemanticComplianceAgent implements ReviewCardAgent {
     private final ModelRouter modelRouter;
     private final PromptTemplateManager promptTemplateManager;
     private final ObjectMapper objectMapper;
+    private final PromptCacheService promptCacheService;
 
     @Value("${review.llm.default-model:mock}")
     private String defaultModel;
@@ -51,7 +53,17 @@ public class SemanticComplianceAgent implements ReviewCardAgent {
             variables.put("contentType", context.getContentType() != null ? context.getContentType() : "");
 
             String prompt = promptTemplateManager.buildReviewPrompt(variables);
-            String response = modelRouter.generate(defaultModel, prompt);
+            String promptHash = promptCacheService.computeHash(prompt);
+            String cacheKey = promptCacheService.getLawContextCacheKey(context.getContentType(), context.getProductType());
+            String cachedResponse = promptCacheService.getCachedResponse(cacheKey + ":" + promptHash);
+            String response;
+            if (cachedResponse != null) {
+                log.debug("Cache hit for SemanticComplianceAgent prompt");
+                response = cachedResponse;
+            } else {
+                response = modelRouter.generate(defaultModel, prompt);
+                promptCacheService.cacheResponse(cacheKey + ":" + promptHash, response, promptCacheService.getDefaultTtl());
+            }
 
             issues.addAll(parseResponse(response));
         } catch (Exception e) {

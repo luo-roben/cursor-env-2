@@ -90,6 +90,9 @@ public class ReviewResultDO {
     @Column(name = "revised_text", columnDefinition = "TEXT")
     private String revisedText;
 
+    @Column(name = "revision_status", length = 20)
+    private String revisionStatus;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -101,6 +104,9 @@ public class ReviewResultDO {
         }
         if (this.citationStatus == null) {
             this.citationStatus = "PENDING";
+        }
+        if (this.revisionStatus == null) {
+            this.revisionStatus = "active";
         }
     }
 }

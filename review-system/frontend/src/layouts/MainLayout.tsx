@@ -97,6 +97,11 @@ const menuItems: MenuItem[] = [
         icon: <ExperimentOutlined />,
         label: '法规解析',
       },
+      {
+        key: '/knowledge/industry',
+        icon: <BookOutlined />,
+        label: '行业知识库',
+      },
     ],
   },
   {
@@ -120,6 +125,11 @@ const menuItems: MenuItem[] = [
     key: '/cases',
     icon: <FolderOpenOutlined />,
     label: '案例库',
+  },
+  {
+    key: '/golden',
+    icon: <ExperimentOutlined />,
+    label: '金标准测试',
   },
   {
     key: 'system',
@@ -152,6 +162,7 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/review')) return ['review'];
     if (path.startsWith('/knowledge')) return ['knowledge'];
     if (path.startsWith('/rules')) return ['rules'];
+    if (path.startsWith('/golden')) return [];
     if (path.startsWith('/system')) return ['system'];
     return [];
   })();

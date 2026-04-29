@@ -7,6 +7,8 @@ import com.review.module.cases.entity.ReviewCaseDO;
 import com.review.module.cases.repository.ReviewCaseRepository;
 import com.review.module.context.ContextAssembler;
 import com.review.module.context.dto.AssembledContext;
+import com.review.module.industry.entity.IndustryKnowledgeDO;
+import com.review.module.industry.repository.IndustryKnowledgeRepository;
 import com.review.module.knowledge.entity.ContractTemplateClauseDO;
 import com.review.module.knowledge.entity.ContractTemplateDO;
 import com.review.module.knowledge.entity.LawArticleDO;
@@ -38,6 +40,7 @@ public class ContextAssemblerImpl implements ContextAssembler {
     private final ReviewCaseRepository reviewCaseRepository;
     private final ContractTemplateRepository contractTemplateRepository;
     private final ContractTemplateClauseRepository contractTemplateClauseRepository;
+    private final IndustryKnowledgeRepository industryKnowledgeRepository;
 
     @Autowired(required = false)
     private VectorStoreService vectorStoreService;
@@ -137,6 +140,21 @@ public class ContextAssemblerImpl implements ContextAssembler {
             } catch (Exception e) {
                 log.warn("Template diff with LCS failed: {}", e.getMessage());
             }
+        }
+
+        // Path H: industry knowledge
+        try {
+            List<IndustryKnowledgeDO> knowledgeEntries = industryKnowledgeRepository.findByStatus("published");
+            for (IndustryKnowledgeDO knowledge : knowledgeEntries) {
+                allArticles.add(LawArticleInfo.builder()
+                        .lawName("[行业知识] " + knowledge.getIndustry() + " - " + knowledge.getKnowledgeType())
+                        .articleId(knowledge.getTitle())
+                        .originalText(knowledge.getContent())
+                        .normType(knowledge.getKnowledgeType())
+                        .build());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load industry knowledge: {}", e.getMessage());
         }
 
         // Also load cases from context

@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS review_result (
     suggestion TEXT COMMENT '修改建议',
     suggestion_type VARCHAR(30) COMMENT '建议类型: TIP/REVISION/NEGOTIATION_POINT',
     revised_text TEXT COMMENT '可直接采纳的修订文本',
+    revision_status VARCHAR(20) DEFAULT 'active' COMMENT 'active/invalidated/stale',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_task (task_id),
     INDEX idx_tenant (tenant_id),
@@ -386,6 +387,40 @@ CREATE TABLE IF NOT EXISTS contract_clause_edge (
     INDEX idx_task (task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 18. 金标准测试用例表
+CREATE TABLE IF NOT EXISTS golden_test_case (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    document_type VARCHAR(50) NOT NULL,
+    content_type VARCHAR(100),
+    contract_type VARCHAR(100),
+    input_content LONGTEXT NOT NULL,
+    expected_verdict VARCHAR(20) NOT NULL,
+    expected_issues JSON COMMENT 'Expected issue types and counts',
+    expected_min_risk_score INT,
+    expected_max_risk_score INT,
+    tags JSON,
+    enabled TINYINT NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 19. 行业知识库表
+CREATE TABLE IF NOT EXISTS industry_knowledge (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    industry VARCHAR(100) NOT NULL,
+    knowledge_type VARCHAR(50) NOT NULL COMMENT 'norm/best_practice/risk_pattern',
+    title VARCHAR(500) NOT NULL,
+    content TEXT NOT NULL,
+    applicable_contract_types JSON,
+    applicable_content_types JSON,
+    source VARCHAR(200),
+    status VARCHAR(20) NOT NULL DEFAULT 'published',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_industry (industry),
+    INDEX idx_type (knowledge_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ============================================================
 -- Default Data
 -- ============================================================
@@ -397,3 +432,18 @@ INSERT INTO sys_user (tenant_id, username, password, real_name, role)
 VALUES (1, 'admin', '$2a$10$EqKcp1WFKVQIShMozy/Bj.cMGSIfTNFXJGxKVJcBJA1YzLb.c.Biq', '系统管理员', 'SUPER_ADMIN')
     ON DUPLICATE KEY UPDATE username = username;
 -- Default password: admin123
+
+-- Sample golden test cases
+INSERT INTO golden_test_case (name, document_type, content_type, input_content, expected_verdict, expected_min_risk_score, expected_max_risk_score, tags)
+VALUES
+    ('基础合规文本', 'MARKETING', '营销海报', '本基金不保证一定盈利，也不保证最低收益。投资有风险，投资需谨慎。', 'COMPLIANT', 0, 30, '["basic", "marketing"]'),
+    ('违规承诺收益', 'MARKETING', '营销海报', '我司理财产品年化收益率保证8%以上，保本保收益，绝对安全！', 'VIOLATION', 50, 100, '["violation", "marketing"]'),
+    ('合同缺失条款', 'CONTRACT', '采购合同', '甲方：XX公司\n乙方：YY公司\n\n第一条 合同标的\n甲方向乙方采购办公设备一批。\n\n第二条 价格\n总价人民币壹佰万元整。', 'NEEDS_REVIEW', 20, 80, '["contract", "missing_clauses"]')
+ON DUPLICATE KEY UPDATE name = name;
+
+-- Sample industry knowledge
+INSERT INTO industry_knowledge (industry, knowledge_type, title, content, applicable_contract_types, status)
+VALUES
+    ('金融', 'norm', '基金销售规范', '基金销售机构不得以任何方式向投资者承诺或保证收益，不得以预期收益率等暗示基金投资收益。', '["GENERAL"]', 'published'),
+    ('金融', 'risk_pattern', '违规承诺收益模式', '常见违规模式包括：使用"保本"、"保证收益"、"零风险"等表述。', '["GENERAL"]', 'published')
+ON DUPLICATE KEY UPDATE title = title;

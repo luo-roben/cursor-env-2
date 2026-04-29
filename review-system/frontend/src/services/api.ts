@@ -106,4 +106,17 @@ export const detectConflicts = (tenantId: number) =>
 export const getConsistency = (tenantId: number) =>
   api.get('/dashboard/consistency', { params: { tenantId } });
 
+// Golden Tests
+export const getGoldenTests = () => api.get('/golden');
+export const createGoldenTest = (data: any) => api.post('/golden', data);
+export const runAllGoldenTests = () => api.post('/golden/run');
+export const runOneGoldenTest = (id: number) => api.post(`/golden/run/${id}`);
+
+// Industry Knowledge
+export const getIndustryKnowledge = (industry?: string) =>
+  api.get('/industry-knowledge', { params: industry ? { industry } : {} });
+export const createIndustryKnowledge = (data: any) => api.post('/industry-knowledge', data);
+export const updateIndustryKnowledge = (id: number, data: any) => api.put(`/industry-knowledge/${id}`, data);
+export const deleteIndustryKnowledge = (id: number) => api.delete(`/industry-knowledge/${id}`);
+
 export default api;

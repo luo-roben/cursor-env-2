@@ -28,4 +28,6 @@ public class FeedbackSubmitReqVO {
     private String supplementIssue;
     private String comment;
     private Boolean isTypicalCase;
+    private String revisedClauseText;
+    private String clauseId;
 }

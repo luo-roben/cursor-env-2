@@ -8,6 +8,7 @@ import com.review.module.feedback.repository.HumanFeedbackRepository;
 import com.review.module.feedback.service.HumanFeedbackService;
 import com.review.module.feedback.vo.FeedbackRespVO;
 import com.review.module.feedback.vo.FeedbackSubmitReqVO;
+import com.review.module.review.service.RevisionLinkageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,7 @@ public class HumanFeedbackServiceImpl implements HumanFeedbackService {
 
     private final HumanFeedbackRepository humanFeedbackRepository;
     private final CaseSedimentationService caseSedimentationService;
+    private final RevisionLinkageService revisionLinkageService;
 
     @Override
     @Transactional
@@ -45,6 +47,14 @@ public class HumanFeedbackServiceImpl implements HumanFeedbackService {
 
         entity = humanFeedbackRepository.save(entity);
         log.info("Feedback submitted: id={}, taskId={}, action={}", entity.getId(), entity.getTaskId(), entity.getAction());
+
+        if (reqVO.getRevisedClauseText() != null && reqVO.getClauseId() != null) {
+            try {
+                revisionLinkageService.invalidateByClause(reqVO.getTaskId(), reqVO.getClauseId());
+            } catch (Exception e) {
+                log.error("Revision linkage failed for feedback id={}: {}", entity.getId(), e.getMessage(), e);
+            }
+        }
 
         try {
             caseSedimentationService.sediment(entity.getId());

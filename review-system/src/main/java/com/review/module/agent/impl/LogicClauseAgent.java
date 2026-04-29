@@ -7,6 +7,7 @@ import com.review.module.agent.ReviewCardAgent;
 import com.review.module.agent.dto.ClauseInfo;
 import com.review.module.agent.dto.ReviewContext;
 import com.review.module.agent.dto.ReviewIssue;
+import com.review.module.llm.cache.PromptCacheService;
 import com.review.module.llm.model.ModelRouter;
 import com.review.module.llm.prompt.PromptTemplateManager;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ public class LogicClauseAgent implements ReviewCardAgent {
     private final ModelRouter modelRouter;
     private final PromptTemplateManager promptTemplateManager;
     private final ObjectMapper objectMapper;
+    private final PromptCacheService promptCacheService;
 
     @Value("${review.llm.default-model:mock}")
     private String defaultModel;
@@ -177,7 +179,17 @@ public class LogicClauseAgent implements ReviewCardAgent {
         variables.put("customRules", "");
 
         String prompt = promptTemplateManager.buildContractReviewPrompt(variables);
-        String response = modelRouter.generate(defaultModel, prompt);
+        String promptHash = promptCacheService.computeHash(prompt);
+        String cacheKey = "prompt:clause:" + promptHash;
+        String cachedResponse = promptCacheService.getCachedResponse(cacheKey);
+        String response;
+        if (cachedResponse != null) {
+            log.debug("Cache hit for LogicClauseAgent prompt");
+            response = cachedResponse;
+        } else {
+            response = modelRouter.generate(defaultModel, prompt);
+            promptCacheService.cacheResponse(cacheKey, response, promptCacheService.getDefaultTtl());
+        }
 
         try {
             JsonNode root = objectMapper.readTree(response);

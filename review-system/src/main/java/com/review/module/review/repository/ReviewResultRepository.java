@@ -26,4 +26,8 @@ public interface ReviewResultRepository extends JpaRepository<ReviewResultDO, Lo
 
     @Query("SELECT rr.severity, COUNT(rr) FROM ReviewResultDO rr GROUP BY rr.severity")
     List<Object[]> countBySeverityAll();
+
+    List<ReviewResultDO> findByTaskIdAndClauseId(Long taskId, String clauseId);
+
+    List<ReviewResultDO> findByTaskId(Long taskId);
 }

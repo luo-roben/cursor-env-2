@@ -4,6 +4,7 @@ import com.review.common.exception.ErrorCode;
 import com.review.common.exception.ServiceException;
 import com.review.common.result.PageResult;
 import com.review.module.pipeline.ReviewPipeline;
+import com.review.module.pipeline.async.AsyncReviewService;
 import com.review.module.pipeline.dto.ReviewPipelineResult;
 import com.review.module.review.entity.ReviewCardResultDO;
 import com.review.module.review.entity.ReviewMissingElementDO;
@@ -31,11 +32,14 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ReviewTaskServiceImpl implements ReviewTaskService {
 
+    private static final int ASYNC_THRESHOLD = 5000;
+
     private final ReviewTaskRepository reviewTaskRepository;
     private final ReviewResultRepository reviewResultRepository;
     private final ReviewMissingElementRepository reviewMissingElementRepository;
     private final ReviewCardResultRepository reviewCardResultRepository;
     private final ReviewPipeline reviewPipeline;
+    private final AsyncReviewService asyncReviewService;
 
     @Override
     @Transactional
@@ -58,70 +62,29 @@ public class ReviewTaskServiceImpl implements ReviewTaskService {
                 .build();
         ReviewTaskDO saved = reviewTaskRepository.save(task);
 
+        int contentLength = reqVO.getOriginalContent() != null ? reqVO.getOriginalContent().length() : 0;
+        if (contentLength > ASYNC_THRESHOLD) {
+            saved.setReviewStatus("REVIEWING");
+            reviewTaskRepository.save(saved);
+            asyncReviewService.executeAsync(saved).thenAccept(pipelineResult -> {
+                saveResults(saved, pipelineResult);
+            }).exceptionally(ex -> {
+                log.error("Async review failed for task {}: {}", saved.getId(), ex.getMessage(), ex);
+                saved.setReviewStatus("COMPLETED");
+                saved.setOverallVerdict("needs_review");
+                saved.setCompletedAt(LocalDateTime.now());
+                reviewTaskRepository.save(saved);
+                return null;
+            });
+            return getById(saved.getId(), saved.getTenantId());
+        }
+
         try {
             saved.setReviewStatus("REVIEWING");
             reviewTaskRepository.save(saved);
 
             ReviewPipelineResult pipelineResult = reviewPipeline.execute(saved);
-
-            if (pipelineResult.getResults() != null) {
-                for (var issue : pipelineResult.getResults()) {
-                    ReviewResultDO result = ReviewResultDO.builder()
-                            .taskId(saved.getId())
-                            .tenantId(saved.getTenantId())
-                            .cardCategory(issue.getCardCategory())
-                            .segmentIndex(issue.getSegmentIndex())
-                            .originalText(issue.getOriginalText())
-                            .matchedText(issue.getLocationText())
-                            .charOffsetStart(issue.getCharOffset())
-                            .charOffsetEnd(issue.getCharOffset() != null && issue.getCharLength() != null
-                                    ? issue.getCharOffset() + issue.getCharLength() : null)
-                            .verdict(issue.getVerdict())
-                            .confidence(issue.getConfidence() != null ? java.math.BigDecimal.valueOf(issue.getConfidence()) : null)
-                            .issueType(issue.getIssueType())
-                            .severity(issue.getSeverity())
-                            .description(issue.getDescription())
-                            .citedArticleCode(issue.getCitedArticleCode())
-                            .citedLawName(issue.getCitedLawName())
-                            .citationStatus(issue.getCitationStatus() != null ? issue.getCitationStatus() : "pending")
-                            .suggestion(issue.getSuggestion())
-                            .suggestionType(issue.getSuggestionType())
-                            .build();
-                    reviewResultRepository.save(result);
-                }
-            }
-
-            if (pipelineResult.getMissingElements() != null) {
-                for (var me : pipelineResult.getMissingElements()) {
-                    ReviewMissingElementDO missing = ReviewMissingElementDO.builder()
-                            .taskId(saved.getId())
-                            .tenantId(saved.getTenantId())
-                            .cardCategory(me.getCardCategory())
-                            .element(me.getElement())
-                            .requirement(me.getRequirement())
-                            .severity(me.getSeverity() != null ? me.getSeverity() : "major")
-                            .suggestion(me.getSuggestion())
-                            .build();
-                    reviewMissingElementRepository.save(missing);
-                }
-            }
-
-            if (pipelineResult.getCardResults() != null) {
-                for (var cr : pipelineResult.getCardResults()) {
-                    reviewCardResultRepository.save(cr);
-                }
-            }
-
-            saved.setOverallVerdict(pipelineResult.getOverallVerdict());
-            saved.setRiskScore(pipelineResult.getRiskScore());
-            saved.setRiskLevel(pipelineResult.getRiskLevel());
-            saved.setReviewStatus("COMPLETED");
-            saved.setCompletedAt(LocalDateTime.now());
-            saved.setTotalLatencyMs(pipelineResult.getTotalLatencyMs());
-            reviewTaskRepository.save(saved);
-
-            log.info("Review completed: taskId={}, verdict={}, riskScore={}, riskLevel={}",
-                    saved.getId(), saved.getOverallVerdict(), saved.getRiskScore(), saved.getRiskLevel());
+            saveResults(saved, pipelineResult);
         } catch (Exception e) {
             log.error("Review pipeline failed for task {}: {}", saved.getId(), e.getMessage(), e);
             saved.setReviewStatus("COMPLETED");
@@ -131,6 +94,67 @@ public class ReviewTaskServiceImpl implements ReviewTaskService {
         }
 
         return getById(saved.getId(), saved.getTenantId());
+    }
+
+    private void saveResults(ReviewTaskDO task, ReviewPipelineResult pipelineResult) {
+        if (pipelineResult.getResults() != null) {
+            for (var issue : pipelineResult.getResults()) {
+                ReviewResultDO result = ReviewResultDO.builder()
+                        .taskId(task.getId())
+                        .tenantId(task.getTenantId())
+                        .cardCategory(issue.getCardCategory())
+                        .segmentIndex(issue.getSegmentIndex())
+                        .originalText(issue.getOriginalText())
+                        .matchedText(issue.getLocationText())
+                        .charOffsetStart(issue.getCharOffset())
+                        .charOffsetEnd(issue.getCharOffset() != null && issue.getCharLength() != null
+                                ? issue.getCharOffset() + issue.getCharLength() : null)
+                        .verdict(issue.getVerdict())
+                        .confidence(issue.getConfidence() != null ? java.math.BigDecimal.valueOf(issue.getConfidence()) : null)
+                        .issueType(issue.getIssueType())
+                        .severity(issue.getSeverity())
+                        .description(issue.getDescription())
+                        .citedArticleCode(issue.getCitedArticleCode())
+                        .citedLawName(issue.getCitedLawName())
+                        .citationStatus(issue.getCitationStatus() != null ? issue.getCitationStatus() : "pending")
+                        .suggestion(issue.getSuggestion())
+                        .suggestionType(issue.getSuggestionType())
+                        .build();
+                reviewResultRepository.save(result);
+            }
+        }
+
+        if (pipelineResult.getMissingElements() != null) {
+            for (var me : pipelineResult.getMissingElements()) {
+                ReviewMissingElementDO missing = ReviewMissingElementDO.builder()
+                        .taskId(task.getId())
+                        .tenantId(task.getTenantId())
+                        .cardCategory(me.getCardCategory())
+                        .element(me.getElement())
+                        .requirement(me.getRequirement())
+                        .severity(me.getSeverity() != null ? me.getSeverity() : "major")
+                        .suggestion(me.getSuggestion())
+                        .build();
+                reviewMissingElementRepository.save(missing);
+            }
+        }
+
+        if (pipelineResult.getCardResults() != null) {
+            for (var cr : pipelineResult.getCardResults()) {
+                reviewCardResultRepository.save(cr);
+            }
+        }
+
+        task.setOverallVerdict(pipelineResult.getOverallVerdict());
+        task.setRiskScore(pipelineResult.getRiskScore());
+        task.setRiskLevel(pipelineResult.getRiskLevel());
+        task.setReviewStatus("COMPLETED");
+        task.setCompletedAt(LocalDateTime.now());
+        task.setTotalLatencyMs(pipelineResult.getTotalLatencyMs());
+        reviewTaskRepository.save(task);
+
+        log.info("Review completed: taskId={}, verdict={}, riskScore={}, riskLevel={}",
+                task.getId(), task.getOverallVerdict(), task.getRiskScore(), task.getRiskLevel());
     }
 
     @Override
