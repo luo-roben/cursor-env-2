@@ -15,6 +15,10 @@ import {
   SettingOutlined,
   TeamOutlined,
   UserOutlined,
+  AuditOutlined,
+  SolutionOutlined,
+  ExperimentOutlined,
+  LineChartOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
@@ -25,9 +29,21 @@ type MenuItem = Required<MenuProps>['items'][number];
 
 const menuItems: MenuItem[] = [
   {
-    key: '/dashboard',
+    key: 'dashboard',
     icon: <DashboardOutlined />,
     label: '仪表盘',
+    children: [
+      {
+        key: '/dashboard',
+        icon: <DashboardOutlined />,
+        label: '总览',
+      },
+      {
+        key: '/dashboard/consistency',
+        icon: <LineChartOutlined />,
+        label: '复核一致性',
+      },
+    ],
   },
   {
     key: 'review',
@@ -43,6 +59,11 @@ const menuItems: MenuItem[] = [
         key: '/review/list',
         icon: <UnorderedListOutlined />,
         label: '审查列表',
+      },
+      {
+        key: '/review/queue',
+        icon: <AuditOutlined />,
+        label: '复核工作台',
       },
     ],
   },
@@ -65,6 +86,16 @@ const menuItems: MenuItem[] = [
         key: '/knowledge/contract-templates',
         icon: <FileProtectOutlined />,
         label: '合同模板',
+      },
+      {
+        key: '/knowledge/confirmation',
+        icon: <SolutionOutlined />,
+        label: '知识确认',
+      },
+      {
+        key: '/knowledge/law-source-parse',
+        icon: <ExperimentOutlined />,
+        label: '法规解析',
       },
     ],
   },
@@ -117,6 +148,7 @@ const MainLayout: React.FC = () => {
   const selectedKeys = [location.pathname];
   const openKeys = (() => {
     const path = location.pathname;
+    if (path.startsWith('/dashboard')) return ['dashboard'];
     if (path.startsWith('/review')) return ['review'];
     if (path.startsWith('/knowledge')) return ['knowledge'];
     if (path.startsWith('/rules')) return ['rules'];

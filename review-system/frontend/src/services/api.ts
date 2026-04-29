@@ -87,4 +87,23 @@ export const deleteChecklist = (id: number) =>
 export const getCases = (tenantId: number = 1, params?: any) =>
   api.get('/cases', { params: { tenantId, ...params } });
 
+// Feedback
+export const submitFeedback = (data: any) => api.post('/feedback', data);
+export const getFeedbackByTask = (taskId: number) => api.get(`/feedback/task/${taskId}`);
+
+// Law Source Parse
+export const parseSource = (id: number) => api.post(`/law/sources/${id}/parse`);
+export const confirmSource = (id: number) => api.post(`/law/sources/${id}/confirm`);
+
+// Law Article update
+export const updateLawArticle = (id: number, data: any) => api.put(`/law/articles/${id}`, data);
+
+// Conflict Detection
+export const detectConflicts = (tenantId: number) =>
+  api.get('/tenant/rules/conflicts', { params: { tenantId } });
+
+// Consistency Dashboard
+export const getConsistency = (tenantId: number) =>
+  api.get('/dashboard/consistency', { params: { tenantId } });
+
 export default api;

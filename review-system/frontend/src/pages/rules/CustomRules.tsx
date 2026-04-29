@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Tag, Card, Button, Modal, Form, Input, Select, Switch, message, Space, Popconfirm } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { getTenantRules, createTenantRule, updateTenantRule, deleteTenantRule } from '../../services/api';
+import { Table, Tag, Card, Button, Modal, Form, Input, Select, Switch, message, Space, Popconfirm, Alert } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { getTenantRules, createTenantRule, updateTenantRule, deleteTenantRule, detectConflicts } from '../../services/api';
 
 const { Option } = Select;
 
@@ -26,6 +26,8 @@ const CustomRules: React.FC = () => {
   const [editRecord, setEditRecord] = useState<any>(null);
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
+  const [conflicts, setConflicts] = useState<any[] | null>(null);
+  const [conflictLoading, setConflictLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -92,6 +94,24 @@ const CustomRules: React.FC = () => {
     }
   };
 
+  const handleDetectConflicts = async () => {
+    try {
+      setConflictLoading(true);
+      const res = await detectConflicts(1);
+      const result = res.data?.data || res.data;
+      const list = Array.isArray(result) ? result : [];
+      setConflicts(list);
+      if (list.length === 0) {
+        message.success('未发现规则冲突');
+      }
+    } catch {
+      message.error('冲突检测失败');
+      setConflicts(null);
+    } finally {
+      setConflictLoading(false);
+    }
+  };
+
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     {
@@ -142,18 +162,63 @@ const CustomRules: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h2 style={{ margin: 0 }}>自定义规则</h2>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => {
-            setEditRecord(null);
-            form.resetFields();
-            setModalVisible(true);
-          }}
-        >
-          新增规则
-        </Button>
+        <Space>
+          <Button
+            icon={<ThunderboltOutlined />}
+            onClick={handleDetectConflicts}
+            loading={conflictLoading}
+          >
+            检测冲突
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditRecord(null);
+              form.resetFields();
+              setModalVisible(true);
+            }}
+          >
+            新增规则
+          </Button>
+        </Space>
       </div>
+
+      {conflicts !== null && (
+        conflicts.length === 0 ? (
+          <Alert
+            message="未发现规则冲突"
+            type="success"
+            showIcon
+            closable
+            onClose={() => setConflicts(null)}
+            style={{ marginBottom: 16 }}
+          />
+        ) : (
+          <Alert
+            message="发现规则冲突"
+            type="warning"
+            showIcon
+            closable
+            onClose={() => setConflicts(null)}
+            style={{ marginBottom: 16 }}
+            description={
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {conflicts.map((c: any, idx: number) => (
+                  <li key={idx}>
+                    {c.description || c.message || JSON.stringify(c)}
+                    {c.ruleIds && (
+                      <span style={{ marginLeft: 8 }}>
+                        (规则: {Array.isArray(c.ruleIds) ? c.ruleIds.join(', ') : c.ruleIds})
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            }
+          />
+        )
+      )}
 
       <Card>
         <Table
