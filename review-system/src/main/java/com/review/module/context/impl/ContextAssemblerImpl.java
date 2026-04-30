@@ -1,11 +1,14 @@
 package com.review.module.context.impl;
 
+import com.review.infrastructure.search.FullTextSearchService;
+import com.review.infrastructure.search.dto.SearchResult;
 import com.review.infrastructure.vector.VectorStoreService;
 import com.review.infrastructure.vector.dto.VectorSearchResult;
 import com.review.module.agent.dto.*;
 import com.review.module.cases.entity.ReviewCaseDO;
 import com.review.module.cases.repository.ReviewCaseRepository;
 import com.review.module.context.ContextAssembler;
+import com.review.module.context.RRFMerger;
 import com.review.module.context.dto.AssembledContext;
 import com.review.module.industry.entity.IndustryKnowledgeDO;
 import com.review.module.industry.repository.IndustryKnowledgeRepository;
@@ -46,7 +49,13 @@ public class ContextAssemblerImpl implements ContextAssembler {
     private VectorStoreService vectorStoreService;
 
     @Autowired(required = false)
+    private FullTextSearchService fullTextSearchService;
+
+    @Autowired(required = false)
     private TemplateDiffService templateDiffService;
+
+    @Autowired
+    private RRFMerger rrfMerger;
 
     @Override
     public AssembledContext assemble(ReviewContext context) {
@@ -78,8 +87,22 @@ public class ContextAssemblerImpl implements ContextAssembler {
             }
         }
 
-        // Path C: by content semantics (vector search for similar law articles)
-        allArticles.addAll(vectorSearchArticles(context.getContent()));
+        // Path C-vector: by content semantics (vector search for similar law articles)
+        List<LawArticleInfo> vectorArticles = vectorSearchArticles(context.getContent());
+
+        // Path C-ES: full-text search for similar law articles
+        List<LawArticleInfo> esArticles = esSearchArticles(context.getContent());
+
+        // RRF merge all article ranked lists
+        List<List<LawArticleInfo>> articleRankedLists = new ArrayList<>();
+        if (!allArticles.isEmpty()) articleRankedLists.add(new ArrayList<>(allArticles));
+        if (!vectorArticles.isEmpty()) articleRankedLists.add(vectorArticles);
+        if (!esArticles.isEmpty()) articleRankedLists.add(esArticles);
+
+        if (!articleRankedLists.isEmpty()) {
+            allArticles = rrfMerger.merge(articleRankedLists, a ->
+                    a.getId() != null ? a.getId().toString() : (a.getLawName() + ":" + a.getArticleId()));
+        }
 
         // Path D: by similar cases (vector search)
         allCases.addAll(vectorSearchCases(context.getContent()));
@@ -237,6 +260,36 @@ public class ContextAssemblerImpl implements ContextAssembler {
                     .toList();
         } catch (Exception e) {
             log.warn("Vector search for cases failed: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private List<LawArticleInfo> esSearchArticles(String content) {
+        if (fullTextSearchService == null || content == null || content.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        try {
+            String snippet = content.length() > 200 ? content.substring(0, 200) : content;
+            List<SearchResult> results = fullTextSearchService.search(snippet, "law_articles", 10);
+            List<LawArticleInfo> articles = new ArrayList<>();
+            for (SearchResult sr : results) {
+                try {
+                    Long articleId = Long.parseLong(sr.getId());
+                    Optional<LawArticleDO> articleOpt = lawArticleRepository.findById(articleId);
+                    articleOpt.ifPresent(a -> articles.add(LawArticleInfo.builder()
+                            .id(a.getId())
+                            .lawName(a.getLawName())
+                            .articleId(a.getArticleId())
+                            .originalText(a.getOriginalText())
+                            .normType(a.getNormType())
+                            .build()));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            return articles;
+        } catch (Exception e) {
+            log.warn("ES search for articles failed: {}", e.getMessage());
             return Collections.emptyList();
         }
     }

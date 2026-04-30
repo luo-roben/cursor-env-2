@@ -2,10 +2,13 @@ package com.review.module.verification.impl;
 
 import com.review.module.agent.dto.ReviewIssue;
 import com.review.module.knowledge.entity.LawArticleDO;
+import com.review.module.knowledge.entity.LawNameAliasDO;
 import com.review.module.knowledge.repository.LawArticleRepository;
+import com.review.module.knowledge.repository.LawNameAliasRepository;
 import com.review.module.verification.CitationVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -18,6 +21,9 @@ import java.util.Optional;
 public class CitationVerifierImpl implements CitationVerifier {
 
     private final LawArticleRepository lawArticleRepository;
+
+    @Autowired(required = false)
+    private LawNameAliasRepository lawNameAliasRepository;
 
     @Override
     public List<ReviewIssue> verify(List<ReviewIssue> issues) {
@@ -67,6 +73,22 @@ public class CitationVerifierImpl implements CitationVerifier {
     }
 
     private String tryFuzzyMatch(String lawName, String articleCode) {
+        if (lawNameAliasRepository != null) {
+            try {
+                List<LawNameAliasDO> aliases = lawNameAliasRepository.findByAlias(lawName);
+                for (LawNameAliasDO aliasDO : aliases) {
+                    String canonicalName = aliasDO.getLawName();
+                    Optional<LawArticleDO> aliasMatch = lawArticleRepository.findByArticleIdAndLawName(articleCode, canonicalName);
+                    if (aliasMatch.isPresent()) {
+                        log.info("Alias match found: {} ({}) -> {}", lawName, canonicalName, articleCode);
+                        return aliasMatch.get().getArticleId();
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Alias lookup failed for {}: {}", lawName, e.getMessage());
+            }
+        }
+
         List<LawArticleDO> publishedArticles = lawArticleRepository.findByStatus("published");
 
         Optional<LawArticleDO> match = publishedArticles.stream()

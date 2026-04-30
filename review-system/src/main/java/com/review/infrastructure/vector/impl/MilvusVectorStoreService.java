@@ -1,6 +1,7 @@
 package com.review.infrastructure.vector.impl;
 
 import com.alibaba.fastjson.JSONObject;
+import com.review.infrastructure.embedding.EmbeddingService;
 import com.review.infrastructure.vector.VectorStoreService;
 import com.review.infrastructure.vector.dto.VectorSearchResult;
 import io.milvus.v2.client.ConnectConfig;
@@ -17,13 +18,11 @@ import io.milvus.v2.service.vector.response.SearchResp;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,11 +31,13 @@ import java.util.concurrent.ConcurrentHashMap;
 @ConditionalOnProperty(name = "review.milvus.enabled", havingValue = "true")
 public class MilvusVectorStoreService implements VectorStoreService {
 
-    private static final int EMBEDDING_DIM = 128;
     private static final String FIELD_ID = "id";
     private static final String FIELD_EMBEDDING = "embedding";
     private static final String FIELD_TEXT = "text";
     private static final String FIELD_METADATA = "metadata";
+
+    @Autowired
+    private EmbeddingService embeddingService;
 
     @Value("${review.milvus.host:localhost}")
     private String host;
@@ -91,7 +92,7 @@ public class MilvusVectorStoreService implements VectorStoreService {
             return Collections.emptyList();
         }
         try {
-            List<Float> embedding = generateEmbedding(text);
+            List<Float> embedding = toFloatList(embeddingService.embed(text));
 
             Map<String, Object> searchParams = new HashMap<>();
             searchParams.put("metric_type", "COSINE");
@@ -161,7 +162,7 @@ public class MilvusVectorStoreService implements VectorStoreService {
         try {
             ensureCollectionExists(collection);
 
-            List<Float> embedding = generateEmbedding(text);
+            List<Float> embedding = toFloatList(embeddingService.embed(text));
 
             JSONObject row = new JSONObject();
             row.put(FIELD_ID, id);
@@ -203,7 +204,7 @@ public class MilvusVectorStoreService implements VectorStoreService {
             schema.addField(AddFieldReq.builder()
                     .fieldName(FIELD_EMBEDDING)
                     .dataType(DataType.FloatVector)
-                    .dimension(EMBEDDING_DIM)
+                    .dimension(embeddingService.getDimension())
                     .build());
             schema.addField(AddFieldReq.builder()
                     .fieldName(FIELD_TEXT)
@@ -241,43 +242,11 @@ public class MilvusVectorStoreService implements VectorStoreService {
         }
     }
 
-    private List<Float> generateEmbedding(String text) {
-        float[] embedding = new float[EMBEDDING_DIM];
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
-
-            Random rng = new Random(bytesToLong(hash));
-            float norm = 0f;
-            for (int i = 0; i < EMBEDDING_DIM; i++) {
-                embedding[i] = (float) rng.nextGaussian();
-                norm += embedding[i] * embedding[i];
-            }
-            norm = (float) Math.sqrt(norm);
-            if (norm > 0) {
-                for (int i = 0; i < EMBEDDING_DIM; i++) {
-                    embedding[i] /= norm;
-                }
-            }
-        } catch (NoSuchAlgorithmException e) {
-            Random fallback = new Random(text.hashCode());
-            for (int i = 0; i < EMBEDDING_DIM; i++) {
-                embedding[i] = fallback.nextFloat() * 2 - 1;
-            }
-        }
-
-        List<Float> result = new ArrayList<>(EMBEDDING_DIM);
-        for (float v : embedding) {
+    private List<Float> toFloatList(float[] arr) {
+        List<Float> result = new ArrayList<>(arr.length);
+        for (float v : arr) {
             result.add(v);
         }
         return result;
-    }
-
-    private static long bytesToLong(byte[] bytes) {
-        long value = 0;
-        for (int i = 0; i < Math.min(8, bytes.length); i++) {
-            value = (value << 8) | (bytes[i] & 0xFF);
-        }
-        return value;
     }
 }

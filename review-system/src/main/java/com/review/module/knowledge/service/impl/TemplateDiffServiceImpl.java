@@ -18,7 +18,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TemplateDiffServiceImpl implements TemplateDiffService {
 
-    private static final double SIMILARITY_THRESHOLD = 0.6;
+    private static final double MATCH_THRESHOLD = 0.7;
+    private static final double DEVIANT_THRESHOLD = 0.3;
 
     private final ContractTemplateRepository contractTemplateRepository;
     private final ContractTemplateClauseRepository contractTemplateClauseRepository;
@@ -55,8 +56,7 @@ public class TemplateDiffServiceImpl implements TemplateDiffService {
             // Find best matching substring in contract content
             MatchResult match = findBestMatch(contractContent, templateText);
 
-            if (match == null || match.similarity < SIMILARITY_THRESHOLD) {
-                // Missing: template clause not in contract
+            if (match == null || match.similarity < DEVIANT_THRESHOLD) {
                 results.add(TemplateDiffResult.builder()
                         .clauseNumber(clause.getClauseId())
                         .templateClauseText(templateText)
@@ -64,8 +64,7 @@ public class TemplateDiffServiceImpl implements TemplateDiffService {
                         .diffType("MISSING")
                         .severity(clause.getIsRequired() == 1 ? "HIGH" : "MEDIUM")
                         .build());
-            } else if (match.similarity < 0.95) {
-                // Deviant: similar but different
+            } else if (match.similarity < MATCH_THRESHOLD) {
                 results.add(TemplateDiffResult.builder()
                         .clauseNumber(clause.getClauseId())
                         .templateClauseText(templateText)
@@ -95,7 +94,7 @@ public class TemplateDiffServiceImpl implements TemplateDiffService {
         for (int i = 0; i <= content.length() - Math.min(templateText.length() / 2, content.length()); i += step) {
             int end = Math.min(i + windowSize, content.length());
             String candidate = content.substring(i, end);
-            double similarity = lcsSimilarity(templateText, candidate);
+            double similarity = lcsRatio(templateText, candidate);
             if (similarity > bestSimilarity) {
                 bestSimilarity = similarity;
                 bestStart = i;
@@ -104,37 +103,21 @@ public class TemplateDiffServiceImpl implements TemplateDiffService {
             }
         }
 
-        if (bestSimilarity < SIMILARITY_THRESHOLD / 2) return null;
+        if (bestSimilarity < DEVIANT_THRESHOLD / 2) return null;
 
         return new MatchResult(bestText, bestSimilarity, bestStart, bestEnd);
     }
 
-    static double lcsSimilarity(String a, String b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return 0.0;
-
-        int m = a.length();
-        int n = b.length();
-
-        // Optimize: use two rows instead of full matrix
-        int[] prev = new int[n + 1];
-        int[] curr = new int[n + 1];
-
-        for (int i = 1; i <= m; i++) {
-            for (int j = 1; j <= n; j++) {
-                if (a.charAt(i - 1) == b.charAt(j - 1)) {
-                    curr[j] = prev[j - 1] + 1;
-                } else {
-                    curr[j] = Math.max(prev[j], curr[j - 1]);
-                }
-            }
-            int[] temp = prev;
-            prev = curr;
-            curr = temp;
-            java.util.Arrays.fill(curr, 0);
-        }
-
-        int lcsLen = prev[n];
-        return (double) lcsLen / Math.max(m, n);
+    private double lcsRatio(String a, String b) {
+        int m = a.length(), n = b.length();
+        if (m == 0 || n == 0) return 0;
+        int[][] dp = new int[m + 1][n + 1];
+        for (int i = 1; i <= m; i++)
+            for (int j = 1; j <= n; j++)
+                dp[i][j] = a.charAt(i - 1) == b.charAt(j - 1)
+                        ? dp[i - 1][j - 1] + 1
+                        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+        return (double) dp[m][n] / Math.max(m, n);
     }
 
     private void markMatched(boolean[] matched, int start, int end) {

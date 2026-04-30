@@ -251,6 +251,7 @@ public class ReviewPipelineImpl implements ReviewPipeline {
                 CardCategory.LOGIC_CLAUSES.getCode());
         List<ReviewCardAgent> phase2Agents = filterAgents(context, applicableCards).stream()
                 .filter(agent -> phase2Cards.contains(agent.getCardCategory().getCode()))
+                .filter(agent -> !(agent instanceof com.review.module.agent.impl.CrossClauseAgent))
                 .toList();
 
         List<String> highRiskSegments = identifyHighRiskSegments(context);
@@ -265,6 +266,13 @@ public class ReviewPipelineImpl implements ReviewPipeline {
                 ReviewContext subContext = createSubContext(context, chunk);
                 allIssues.addAll(executeAgents(phase2Agents, subContext));
             }
+        }
+
+        List<ReviewCardAgent> crossClauseAgents = filterAgents(context, applicableCards).stream()
+                .filter(agent -> agent instanceof com.review.module.agent.impl.CrossClauseAgent)
+                .toList();
+        if (!crossClauseAgents.isEmpty()) {
+            allIssues.addAll(executeAgents(crossClauseAgents, context));
         }
 
         reindexSegments(allIssues);

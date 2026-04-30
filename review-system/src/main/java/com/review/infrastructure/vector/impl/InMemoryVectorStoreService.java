@@ -1,8 +1,10 @@
 package com.review.infrastructure.vector.impl;
 
+import com.review.infrastructure.embedding.EmbeddingService;
 import com.review.infrastructure.vector.VectorStoreService;
 import com.review.infrastructure.vector.dto.VectorSearchResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.stereotype.Component;
 
@@ -15,6 +17,9 @@ import java.util.stream.Collectors;
 @ConditionalOnMissingBean(name = "milvusVectorStoreService")
 public class InMemoryVectorStoreService implements VectorStoreService {
 
+    @Autowired
+    private EmbeddingService embeddingService;
+
     private final Map<String, Map<String, VectorEntry>> store = new ConcurrentHashMap<>();
 
     @Override
@@ -24,7 +29,7 @@ public class InMemoryVectorStoreService implements VectorStoreService {
             return Collections.emptyList();
         }
 
-        double[] queryVec = simpleTextToVector(text);
+        float[] queryVec = embeddingService.embed(text);
 
         return collectionStore.values().stream()
                 .map(entry -> VectorSearchResult.builder()
@@ -40,28 +45,14 @@ public class InMemoryVectorStoreService implements VectorStoreService {
     @Override
     public void index(String id, String text, String collection, Map<String, Object> metadata) {
         store.computeIfAbsent(collection, k -> new ConcurrentHashMap<>())
-                .put(id, new VectorEntry(id, simpleTextToVector(text), metadata));
+                .put(id, new VectorEntry(id, embeddingService.embed(text), metadata));
         log.debug("Indexed document {} in collection {}", id, collection);
     }
 
-    private double[] simpleTextToVector(String text) {
-        double[] vec = new double[64];
-        if (text == null || text.isEmpty()) return vec;
-        for (int i = 0; i < text.length(); i++) {
-            vec[i % 64] += text.charAt(i);
-        }
-        double norm = 0;
-        for (double v : vec) norm += v * v;
-        norm = Math.sqrt(norm);
-        if (norm > 0) {
-            for (int i = 0; i < vec.length; i++) vec[i] /= norm;
-        }
-        return vec;
-    }
-
-    private double cosineSimilarity(double[] a, double[] b) {
+    private double cosineSimilarity(float[] a, float[] b) {
+        int len = Math.min(a.length, b.length);
         double dot = 0, normA = 0, normB = 0;
-        for (int i = 0; i < a.length; i++) {
+        for (int i = 0; i < len; i++) {
             dot += a[i] * b[i];
             normA += a[i] * a[i];
             normB += b[i] * b[i];
@@ -70,5 +61,5 @@ public class InMemoryVectorStoreService implements VectorStoreService {
         return denom == 0 ? 0 : dot / denom;
     }
 
-    private record VectorEntry(String id, double[] vector, Map<String, Object> metadata) {}
+    private record VectorEntry(String id, float[] vector, Map<String, Object> metadata) {}
 }

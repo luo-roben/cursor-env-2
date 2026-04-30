@@ -1,15 +1,37 @@
 package com.review.module.registry;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.review.module.registry.entity.DocTypeRegistryDO;
+import com.review.module.registry.repository.DocTypeRegistryRepository;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
 
+@Slf4j
 @Component
 public class DocumentTypeRegistry {
 
     private final Map<String, DocumentTypeConfig> configs = new LinkedHashMap<>();
 
+    @Autowired(required = false)
+    private DocTypeRegistryRepository docTypeRegistryRepository;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     public DocumentTypeRegistry() {
+        registerDefaults();
+    }
+
+    @PostConstruct
+    public void init() {
+        loadFromDatabase();
+    }
+
+    private void registerDefaults() {
         register(DocumentTypeConfig.builder()
                 .documentType("marketing")
                 .displayName("营销材料")
@@ -59,6 +81,66 @@ public class DocumentTypeRegistry {
                 .maxContentLength(100000)
                 .enableCrossClause(false)
                 .build());
+    }
+
+    private void loadFromDatabase() {
+        if (docTypeRegistryRepository == null) {
+            log.debug("DocTypeRegistryRepository not available, using in-memory defaults");
+            return;
+        }
+        try {
+            List<DocTypeRegistryDO> dbConfigs = docTypeRegistryRepository.findByEnabledTrue();
+            if (dbConfigs.isEmpty()) {
+                log.debug("No doc type configs in DB, using in-memory defaults");
+                return;
+            }
+            for (DocTypeRegistryDO dbConfig : dbConfigs) {
+                try {
+                    DocumentTypeConfig config = toConfig(dbConfig);
+                    register(config);
+                } catch (Exception e) {
+                    log.warn("Failed to parse doc type config for {}: {}", dbConfig.getDocumentType(), e.getMessage());
+                }
+            }
+            log.info("Loaded {} document type configs from database", dbConfigs.size());
+        } catch (Exception e) {
+            log.warn("Failed to load doc type configs from database, using in-memory defaults: {}", e.getMessage());
+        }
+    }
+
+    public void refresh() {
+        configs.clear();
+        registerDefaults();
+        loadFromDatabase();
+    }
+
+    private DocumentTypeConfig toConfig(DocTypeRegistryDO dbConfig) {
+        Set<Integer> cards = new HashSet<>();
+        try {
+            List<Integer> cardList = objectMapper.readValue(dbConfig.getApplicableCards(), new TypeReference<>() {});
+            cards.addAll(cardList);
+        } catch (Exception e) {
+            log.warn("Failed to parse applicable_cards JSON for {}: {}", dbConfig.getDocumentType(), e.getMessage());
+        }
+
+        List<String> elements = List.of();
+        try {
+            if (dbConfig.getRequiredElements() != null && !dbConfig.getRequiredElements().isEmpty()) {
+                elements = objectMapper.readValue(dbConfig.getRequiredElements(), new TypeReference<>() {});
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse required_elements JSON for {}: {}", dbConfig.getDocumentType(), e.getMessage());
+        }
+
+        return DocumentTypeConfig.builder()
+                .documentType(dbConfig.getDocumentType())
+                .displayName(dbConfig.getDisplayName())
+                .applicableCards(cards)
+                .defaultParser(dbConfig.getDefaultParser())
+                .requiredElements(elements)
+                .maxContentLength(dbConfig.getMaxContentLength() != null ? dbConfig.getMaxContentLength() : 100000)
+                .enableCrossClause(Boolean.TRUE.equals(dbConfig.getEnableCrossClause()))
+                .build();
     }
 
     public void register(DocumentTypeConfig config) {

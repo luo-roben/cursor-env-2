@@ -421,6 +421,48 @@ CREATE TABLE IF NOT EXISTS industry_knowledge (
     INDEX idx_type (knowledge_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 20. 文档类型注册表
+CREATE TABLE IF NOT EXISTS doc_type_registry (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    document_type VARCHAR(50) NOT NULL UNIQUE,
+    display_name VARCHAR(100) NOT NULL,
+    applicable_cards JSON NOT NULL,
+    default_parser VARCHAR(50),
+    required_elements JSON,
+    max_content_length INT DEFAULT 100000,
+    enable_cross_clause TINYINT DEFAULT 0,
+    enabled TINYINT DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 21. 法律名称别名表
+CREATE TABLE IF NOT EXISTS law_name_alias (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    law_name VARCHAR(500) NOT NULL,
+    alias VARCHAR(500) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_alias (alias(100))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 22. 审查人员指标表
+CREATE TABLE IF NOT EXISTS reviewer_metrics (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    reviewer_id BIGINT NOT NULL,
+    tenant_id BIGINT NOT NULL,
+    period VARCHAR(20) NOT NULL COMMENT 'e.g. 2026-04',
+    total_reviews INT DEFAULT 0,
+    confirmed_count INT DEFAULT 0,
+    rejected_count INT DEFAULT 0,
+    modified_count INT DEFAULT 0,
+    supplemented_count INT DEFAULT 0,
+    avg_review_time_seconds INT,
+    agreement_rate DECIMAL(5,2),
+    kappa_score DECIMAL(5,3),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_reviewer_period (reviewer_id, tenant_id, period)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ============================================================
 -- Default Data
 -- ============================================================
@@ -447,3 +489,25 @@ VALUES
     ('金融', 'norm', '基金销售规范', '基金销售机构不得以任何方式向投资者承诺或保证收益，不得以预期收益率等暗示基金投资收益。', '["GENERAL"]', 'published'),
     ('金融', 'risk_pattern', '违规承诺收益模式', '常见违规模式包括：使用"保本"、"保证收益"、"零风险"等表述。', '["GENERAL"]', 'published')
 ON DUPLICATE KEY UPDATE title = title;
+
+-- Default doc_type_registry data
+INSERT INTO doc_type_registry (document_type, display_name, applicable_cards, default_parser, required_elements, max_content_length, enable_cross_clause, enabled)
+VALUES
+    ('marketing', '营销材料', '[1,2,3,4]', 'text', '["风险提示","免责声明","过往业绩不代表未来表现"]', 50000, 0, 1),
+    ('contract', '合同', '[1,2,3,4,5]', 'contract', '["合同编号","甲方","乙方","签署日期","争议解决"]', 100000, 1, 1),
+    ('prospectus', '招股说明书', '[1,2,3,4]', 'text', '["风险揭示","投资策略","费率说明"]', 200000, 0, 1),
+    ('report', '报告', '[1,2,3,4]', 'text', '[]', 100000, 0, 1),
+    ('other', '其他', '[1,2,3,4]', 'text', '[]', 100000, 0, 1)
+ON DUPLICATE KEY UPDATE display_name = VALUES(display_name);
+
+-- Sample law_name_alias data
+INSERT INTO law_name_alias (law_name, alias) VALUES
+    ('中华人民共和国证券投资基金法', '基金法'),
+    ('中华人民共和国证券投资基金法', '证券投资基金法'),
+    ('中华人民共和国合同法', '合同法'),
+    ('中华人民共和国民法典', '民法典'),
+    ('中华人民共和国公司法', '公司法'),
+    ('中华人民共和国证券法', '证券法'),
+    ('公开募集证券投资基金销售机构监督管理办法', '基金销售管理办法'),
+    ('证券期货投资者适当性管理办法', '适当性管理办法')
+ON DUPLICATE KEY UPDATE law_name = VALUES(law_name);
